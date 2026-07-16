@@ -1,17 +1,16 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { useQRCode } from '../../hooks/useQRCode';
-import { buildQrSettings } from '../../utils/qrHelpers';
 
-const GeneratorContext = createContext<ReturnType<typeof useQRCode> | null>(null);
+type GeneratorState = ReturnType<typeof useQRCode>;
 
-export function GeneratorProvider({ children }: { children: React.ReactNode }) {
+const GeneratorContext = createContext<GeneratorState | null>(null);
+
+export function GeneratorProvider({ children }: { children: ReactNode }) {
   const qr = useQRCode({
-    value: 'https://openai.com',
+    value: 'https://example.com',
   });
 
-  const value = useMemo(() => ({ ...qr, setSettings: qr.setSettings, buildQrSettings }), [qr]);
-
-  return <GeneratorContext.Provider value={value as ReturnType<typeof useQRCode>}>{children}</GeneratorContext.Provider>;
+  return <GeneratorContext.Provider value={qr}>{children}</GeneratorContext.Provider>;
 }
 
 export function useGenerator() {
