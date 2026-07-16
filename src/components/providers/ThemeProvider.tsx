@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -16,11 +16,14 @@ function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return 'system';
-    return (window.localStorage.getItem(STORAGE_KEY) as Theme) || 'system';
-  });
+function readStoredTheme(): Theme {
+  if (typeof window === 'undefined') return 'system';
+  const stored = window.localStorage.getItem(STORAGE_KEY);
+  return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+}
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [theme, setThemeState] = useState<Theme>(readStoredTheme);
 
   const resolvedTheme = theme === 'system' ? getSystemTheme() : theme;
 
@@ -28,17 +31,27 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const root = document.documentElement;
     root.dataset.theme = resolvedTheme;
     root.classList.toggle('dark', resolvedTheme === 'dark');
-    window.localStorage.setItem(STORAGE_KEY, theme);
+
+    try {
+      window.localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage failures and keep the app running.
+    }
   }, [theme, resolvedTheme]);
 
   useEffect(() => {
-    if (theme !== 'system') return;
+    if (theme !== 'system' || typeof window === 'undefined') return;
+
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = () => {
-      document.documentElement.dataset.theme = media.matches ? 'dark' : 'light';
-      document.documentElement.classList.toggle('dark', media.matches);
+      const next = media.matches ? 'dark' : 'light';
+      document.documentElement.dataset.theme = next;
+      document.documentElement.classList.toggle('dark', next === 'dark');
     };
+
     media.addEventListener('change', handler);
+    handler();
+
     return () => media.removeEventListener('change', handler);
   }, [theme]);
 
