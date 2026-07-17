@@ -1,4 +1,4 @@
-import { Menu, MoonStar, ScanSearch, SunMedium } from 'lucide-react';
+import { MoonStar, ScanSearch, SunMedium } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { GlassButton } from '../ui/GlassButton';
 import { useTheme } from '../providers/ThemeProvider';
@@ -41,11 +41,8 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-2">
-          <GlassButton className="h-10 w-10 p-0" aria-label="Toggle theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+          <GlassButton aria-label="Toggle theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? <SunMedium size={16} /> : <MoonStar size={16} />}
-          </GlassButton>
-          <GlassButton className="md:hidden h-10 w-10 p-0" aria-label="Open menu">
-            <Menu size={16} />
           </GlassButton>
         </div>
       </div>
