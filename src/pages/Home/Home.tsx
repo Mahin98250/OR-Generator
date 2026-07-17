@@ -1,6 +1,5 @@
 import { ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { GlassButton } from '../../components/ui/GlassButton';
 import { GlassCard } from '../../components/ui/GlassCard';
 
 export function Home() {
@@ -20,9 +19,9 @@ export function Home() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <GlassButton as="button" className="bg-white text-slate-950">
+            <Link to="/generator" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-950 shadow-glass transition hover:scale-[1.02]">
               Start creating <ArrowRight size={14} />
-            </GlassButton>
+            </Link>
             <Link to="/scanner" className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/80 backdrop-blur-xl transition hover:bg-white/10">
               Open scanner
             </Link>
