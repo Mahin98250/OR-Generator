@@ -22,7 +22,8 @@ export function useQRCode(initial?: Partial<QRSettings>) {
     async function generate() {
       if (!isValidQrValue(settings.value)) {
         setDataUrl('');
-        setError('Enter text or a URL to generate a QR code.');
+        setLoading(false);
+        setError(null);
         return;
       }
 
