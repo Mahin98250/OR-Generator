@@ -3,6 +3,7 @@ import { GlassCard } from '../../components/ui/GlassCard';
 import { GeneratorForm } from '../../components/generator/GeneratorForm';
 import { QRPreview } from '../../components/generator/QRPreview';
 import { GeneratorProvider } from '../../components/generator/GeneratorContext';
+import { QRCodeActions } from '../../components/generator/QRCodeActions';
 
 export function Generator() {
   return (
@@ -28,9 +29,14 @@ export function Generator() {
             <GeneratorForm />
           </GlassCard>
 
-          <GlassCard>
-            <QRPreview />
-          </GlassCard>
+          <div className="space-y-6">
+            <GlassCard>
+              <QRPreview />
+            </GlassCard>
+            <GlassCard>
+              <QRCodeActions />
+            </GlassCard>
+          </div>
         </div>
       </section>
     </GeneratorProvider>
