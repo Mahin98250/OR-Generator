@@ -4,6 +4,7 @@ import { GeneratorForm } from '../../components/generator/GeneratorForm';
 import { QRPreview } from '../../components/generator/QRPreview';
 import { GeneratorProvider } from '../../components/generator/GeneratorContext';
 import { QRCodeActions } from '../../components/generator/QRCodeActions';
+import { GeneratorControls } from '../../components/generator/GeneratorControls';
 
 export function Generator() {
   return (
@@ -25,9 +26,14 @@ export function Generator() {
         </motion.div>
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
-          <GlassCard>
-            <GeneratorForm />
-          </GlassCard>
+          <div className="space-y-6">
+            <GlassCard>
+              <GeneratorForm />
+            </GlassCard>
+            <GlassCard>
+              <GeneratorControls />
+            </GlassCard>
+          </div>
 
           <div className="space-y-6">
             <GlassCard>
