@@ -1,7 +1,7 @@
-import { motion } from 'framer-motion';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { motion, type HTMLMotionProps } from 'framer-motion';
+import type { ReactNode } from 'react';
 
-type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
+type Props = HTMLMotionProps<'button'> & {
   children: ReactNode;
 };
 
