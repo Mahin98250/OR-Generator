@@ -6,6 +6,7 @@ export function QRCodeActions() {
   const { dataUrl, settings } = useGenerator();
 
   async function copyText() {
+    if (!navigator.clipboard) return;
     await navigator.clipboard.writeText(settings.value);
   }
 
@@ -14,7 +15,10 @@ export function QRCodeActions() {
     const link = document.createElement('a');
     link.href = dataUrl;
     link.download = 'qr-code.png';
+    link.rel = 'noopener';
+    document.body.appendChild(link);
     link.click();
+    link.remove();
   }
 
   return (
