@@ -8,7 +8,7 @@ export function GeneratorForm() {
     <div className="space-y-5">
       <div className="space-y-2">
         <h2 className="text-xl font-semibold text-white">QR content</h2>
-        <p className="text-sm text-white/60">Edit the payload and watch the QR preview update instantly.</p>
+        <p className="text-sm text-white/60">Edit the payload and watch the QR update instantly.</p>
       </div>
 
       <div className="space-y-3">
@@ -55,8 +55,8 @@ export function GeneratorForm() {
       </div>
 
       <div className="flex flex-wrap gap-3 pt-2">
-        <GlassButton className="bg-white text-slate-950">Generate QR</GlassButton>
-        <GlassButton onClick={() => setSettings((prev) => ({ ...prev, value: '' }))}>Reset</GlassButton>
+        <GlassButton type="button" className="bg-white text-slate-950">Generate QR</GlassButton>
+        <GlassButton type="button" onClick={() => setSettings((prev) => ({ ...prev, value: '' }))}>Reset</GlassButton>
       </div>
     </div>
   );
