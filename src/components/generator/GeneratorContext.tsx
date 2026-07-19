@@ -8,6 +8,11 @@ const GeneratorContext = createContext<GeneratorState | null>(null);
 export function GeneratorProvider({ children }: { children: ReactNode }) {
   const qr = useQRCode({
     value: 'https://example.com',
+    size: 512,
+    margin: 2,
+    dark: '#0B1020',
+    light: '#FFFFFF',
+    errorCorrectionLevel: 'M',
   });
 
   return <GeneratorContext.Provider value={qr}>{children}</GeneratorContext.Provider>;
