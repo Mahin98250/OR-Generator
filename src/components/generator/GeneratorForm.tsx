@@ -1,8 +1,11 @@
+import { useMemo } from 'react';
 import { GlassButton } from '../ui/GlassButton';
 import { useGenerator } from './GeneratorContext';
 
 export function GeneratorForm() {
   const { settings, setSettings } = useGenerator();
+
+  const isValid = useMemo(() => settings.value.trim().length > 0, [settings.value]);
 
   return (
     <div className="space-y-5">
@@ -20,6 +23,7 @@ export function GeneratorForm() {
           placeholder="https://example.com"
           className="w-full rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/20"
         />
+        {!isValid ? <p className="text-sm text-rose-300">Type something first to generate a QR code.</p> : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -55,7 +59,9 @@ export function GeneratorForm() {
       </div>
 
       <div className="flex flex-wrap gap-3 pt-2">
-        <GlassButton type="button" className="bg-white text-slate-950">Generate QR</GlassButton>
+        <GlassButton type="button" className="bg-white text-slate-950" disabled={!isValid} onClick={() => setSettings((prev) => ({ ...prev }))}>
+          Generate QR
+        </GlassButton>
         <GlassButton type="button" onClick={() => setSettings((prev) => ({ ...prev, value: '' }))}>Reset</GlassButton>
       </div>
     </div>
