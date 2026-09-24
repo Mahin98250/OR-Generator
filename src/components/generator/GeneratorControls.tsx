@@ -1,65 +1,15 @@
+import { SlidersHorizontal } from 'lucide-react';
 import { useGenerator } from './GeneratorContext';
 import { GlassButton } from '../ui/GlassButton';
 
 export function GeneratorControls() {
   const { settings, setSettings } = useGenerator();
-
   return (
-    <div className="space-y-4 rounded-[24px] border border-white/10 bg-white/5 p-4">
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-white/75">Preset</label>
-        <select
-          value="custom"
-          onChange={(e) => {
-            const value = e.target.value;
-            if (value === 'url') {
-              setSettings((prev) => ({ ...prev, value: 'https://example.com' }));
-            }
-            if (value === 'text') {
-              setSettings((prev) => ({ ...prev, value: 'Hello from OR-Generator' }));
-            }
-          }}
-          className="w-full rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
-        >
-          <option value="custom">Custom</option>
-          <option value="url">URL</option>
-          <option value="text">Text</option>
-        </select>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-white/75">Margin</label>
-          <input
-            type="range"
-            min="0"
-            max="8"
-            value={settings.margin}
-            onChange={(e) => setSettings((prev) => ({ ...prev, margin: Number(e.target.value) }))}
-            className="w-full accent-white"
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-white/75">Size</label>
-          <input
-            type="range"
-            min="128"
-            max="1024"
-            value={settings.size}
-            onChange={(e) => setSettings((prev) => ({ ...prev, size: Number(e.target.value) }))}
-            className="w-full accent-white"
-          />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-3">
-        <GlassButton type="button" className="bg-white text-slate-950" onClick={() => setSettings((prev) => ({ ...prev, value: 'https://example.com' }))}>
-          Reset URL
-        </GlassButton>
-        <GlassButton type="button" onClick={() => setSettings((prev) => ({ ...prev, value: '' }))}>
-          Clear
-        </GlassButton>
-      </div>
+    <div className="space-y-5">
+      <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white/7 text-violet-300"><SlidersHorizontal size={17}/></span><div><h2 className="font-bold text-[var(--text)]">Fine tune</h2><p className="text-xs text-[var(--text-muted)]">Adjust the code without leaving the page.</p></div></div>
+      <div className="space-y-2"><label className="text-xs font-bold uppercase tracking-[.18em] text-[var(--text-muted)]">Quick preset</label><select value="custom" onChange={(e)=>{if(e.target.value==='url')setSettings(p=>({...p,value:'https://example.com'}));if(e.target.value==='text')setSettings(p=>({...p,value:'Hello from OR-Generator'}));}} className="w-full rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-[var(--text)] outline-none"><option value="custom">Custom content</option><option value="url">Example URL</option><option value="text">Example text</option></select></div>
+      <div className="rounded-2xl border border-white/8 bg-white/[.035] p-4"><div className="flex justify-between text-xs font-semibold text-[var(--text-muted)]"><span>Quiet zone</span><span>{settings.margin}</span></div><input aria-label="QR margin" type="range" min="0" max="8" value={settings.margin} onChange={(e)=>setSettings(p=>({...p,margin:Number(e.target.value)}))} className="mt-4 w-full accent-violet-300"/></div>
+      <div className="flex flex-wrap gap-2"><GlassButton type="button" className="bg-white text-slate-950" onClick={()=>setSettings(p=>({...p,value:'https://example.com'}))}>Use example</GlassButton><GlassButton type="button" onClick={()=>setSettings(p=>({...p,value:''}))}>Clear</GlassButton></div>
     </div>
   );
 }
