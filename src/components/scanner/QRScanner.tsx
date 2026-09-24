@@ -145,7 +145,7 @@ export function QRScanner() {
       const controls = await reader.decodeFromVideoElement(video, (decoded, decodeError) => {
         if (decoded?.getText()) {
           handleDecoded(decoded.getText(), normalizeFormat(decoded.getBarcodeFormat()?.toString()));
-          controls?.stop();
+          zxingControlsRef.current?.stop();
           return;
         }
         void decodeError;
