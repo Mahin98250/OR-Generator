@@ -42,12 +42,12 @@ export function Statistics() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
+        {([
           [ScanLine, 'Total scans', stats.total],
           [ScanBarcode, 'Barcodes', stats.barcode],
           [Heart, 'Favorites', stats.favorites],
           [TrendingUp, 'QR scans', stats.qr],
-        ].map(([Icon, label, value]) => (
+        ] as const).map(([Icon, label, value]) => (
           <div key={String(label)} className="glass-soft rounded-[24px] p-4">
             <Icon size={17} className="text-cyan-300" />
             <p className="mt-5 text-[10px] font-bold uppercase tracking-[.15em] text-[var(--text-muted)]">{String(label)}</p>
