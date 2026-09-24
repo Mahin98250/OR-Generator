@@ -17,7 +17,8 @@
     "react-router-dom": "^7.1.1",
     "sonner": "^1.7.0",
     "qrcode": "^1.5.4",
-    "jsqr": "^1.4.0"
+    "jsqr": "^1.4.0",
+    "@zxing/browser": "^0.2.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
