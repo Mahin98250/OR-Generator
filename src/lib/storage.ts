@@ -6,6 +6,8 @@ export type HistoryItem = {
   format?: string;
   kind?: string;
   title?: string;
+  tags?: string[];
+  note?: string;
 };
 
 const STORAGE_KEY = 'or-generator-history';
@@ -123,6 +125,8 @@ export function importHistory(raw: string): { imported: number; skipped: number 
       current.format ||= item.format;
       current.kind ||= item.kind;
       current.title ||= item.title;
+      if (item.tags) current.tags = Array.from(new Set([...(current.tags || []), ...item.tags])).slice(0, 12);
+      current.note ||= item.note;
     } else {
       const next: HistoryItem = {
         id: typeof item.id === 'string' ? item.id : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
@@ -132,6 +136,8 @@ export function importHistory(raw: string): { imported: number; skipped: number 
         format: item.format,
         kind: item.kind,
         title: item.title,
+        tags: Array.isArray(item.tags) ? item.tags.slice(0, 12) : undefined,
+        note: typeof item.note === 'string' ? item.note.slice(0, 500) : undefined,
       };
       byValue.set(value, next);
       imported += 1;

@@ -78,9 +78,9 @@ export function Tools() {
         </GlassCard>
       </div>
 
-      <GlassCard className="mt-5">
+      <div className="mt-5"><GlassCard>
         <div className="flex items-start gap-3"><Clipboard size={18} className="mt-0.5 text-cyan-300" /><div><p className="font-bold text-[var(--text)]">Daily workflow</p><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">Scan a label → inspect the number → tag it in your Scan Library → search the code when you need product context → keep the result locally for later.</p></div></div>
-      </GlassCard>
+      </GlassCard></div>
     </section>
   );
 }
