@@ -75,7 +75,13 @@ export function deleteHistoryItem(id: string): HistoryItem[] {
   return items.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export function updateHistoryItem(id: string, patch: Partial<Pick<HistoryItem, 'favorite' | 'format' | 'kind' | 'title' | 'tags' | 'note'>>): HistoryItem[] {\n  const items = readHistory().map((item) => item.id === id ? { ...item, ...patch } : item);\n  writeHistory(items);\n  return items.sort((a, b) => b.createdAt - a.createdAt);\n}\n\nexport function clearHistory() {
+export function updateHistoryItem(id: string, patch: Partial<Pick<HistoryItem, 'favorite' | 'format' | 'kind' | 'title' | 'tags' | 'note'>>): HistoryItem[] {
+  const items = readHistory().map((item) => item.id === id ? { ...item, ...patch } : item);
+  writeHistory(items);
+  return items.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function clearHistory() {
   writeHistory([]);
 }
 
