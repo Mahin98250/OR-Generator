@@ -1,4 +1,4 @@
-import { MoonStar, ScanSearch, SunMedium } from 'lucide-react';
+import { BarChart3, MoonStar, ScanSearch, SunMedium } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { GlassButton } from '../ui/GlassButton';
 import { InstallPWAButton } from '../ui/InstallPWAButton';
@@ -8,7 +8,8 @@ const links = [
   { to: '/', label: 'Home' },
   { to: '/generator', label: 'Create' },
   { to: '/scanner', label: 'Scan' },
-  { to: '/history', label: 'History' },
+  { to: '/history', label: 'Library' },
+  { to: '/statistics', label: 'Stats', icon: BarChart3 },
   { to: '/settings', label: 'Settings' },
 ];
 
@@ -27,7 +28,7 @@ export function Navbar() {
             </span>
             <span className="hidden sm:block">
               <span className="block text-sm font-bold tracking-tight text-[var(--text)]">OR-Generator</span>
-              <span className="block text-[10px] font-medium uppercase tracking-[.2em] text-[var(--text-muted)]">QR Studio</span>
+              <span className="block text-[10px] font-medium uppercase tracking-[.2em] text-[var(--text-muted)]">QR + Barcode Studio</span>
             </span>
           </Link>
 
@@ -36,7 +37,7 @@ export function Navbar() {
               const active = location.pathname === link.to;
               return (
                 <Link key={link.to} to={link.to}
-                  className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold transition sm:px-4 sm:text-sm ${active ? 'bg-white text-slate-950 shadow-md shadow-black/10' : 'text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--text)]'}`}>
+                  className={"shrink-0 rounded-full px-3 py-2 text-xs font-semibold transition sm:px-4 sm:text-sm " + (active ? 'bg-white text-slate-950 shadow-md shadow-black/10' : 'text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--text)]')}>
                   {link.label}
                 </Link>
               );
