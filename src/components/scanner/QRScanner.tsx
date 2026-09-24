@@ -25,7 +25,9 @@ import { analyzeScan, type ScanAnalysis } from '../../lib/scan';
 
 type ScanMode = 'auto' | 'qr' | 'barcode';
 
-type BarcodeResult = { rawValue?: string; format?: string };\n\ntype BatchResult = { value: string; format: string; analysis: ScanAnalysis };
+type BarcodeResult = { rawValue?: string; format?: string };
+
+type BatchResult = { value: string; format: string; analysis: ScanAnalysis };
 
 type BarcodeDetectorLike = {
   detect: (source: CanvasImageSource) => Promise<BarcodeResult[]>;
@@ -96,7 +98,8 @@ export function QRScanner() {
   const [mode, setMode] = useState<ScanMode>('auto');
   const [engine, setEngine] = useState('Preparing scanner');
   const [supportedFormats, setSupportedFormats] = useState<string[]>([]);
-  const [analysis, setAnalysis] = useState<ScanAnalysis | null>(null);\n  const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+  const [analysis, setAnalysis] = useState<ScanAnalysis | null>(null);
+  const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
 
   useEffect(() => () => stopCamera(), []);
 
@@ -250,7 +253,29 @@ export function QRScanner() {
     frameRef.current = requestAnimationFrame(scanFrame);
   }
 
-  function handleBatchDecoded(results: BarcodeResult[]) {\n    const seen = new Set<string>();\n    const batch: BatchResult[] = results\n      .filter((item) => item.rawValue)\n      .map((item) => {\n        const value = item.rawValue!.trim();\n        const displayFormat = normalizeFormat(item.format);\n        return { value, format: displayFormat, analysis: analyzeScan(value, displayFormat) };\n      })\n      .filter((item) => {\n        if (seen.has(item.value)) return false;\n        seen.add(item.value);\n        return true;\n      });\n    if (!batch.length) return;\n    setResult('');\n    setAnalysis(null);\n    setBatchResults(batch);\n    batch.forEach((item) => saveHistoryItem(item.value, { format: item.format, kind: item.analysis.kind, title: item.analysis.title }));\n    stopCamera();\n  }\n\n  function handleDecoded(value: string, detectedFormat = 'qr_code') {
+  function handleBatchDecoded(results: BarcodeResult[]) {
+    const seen = new Set<string>();
+    const batch: BatchResult[] = results
+      .filter((item) => item.rawValue)
+      .map((item) => {
+        const value = item.rawValue!.trim();
+        const displayFormat = normalizeFormat(item.format);
+        return { value, format: displayFormat, analysis: analyzeScan(value, displayFormat) };
+      })
+      .filter((item) => {
+        if (seen.has(item.value)) return false;
+        seen.add(item.value);
+        return true;
+      });
+    if (!batch.length) return;
+    setResult('');
+    setAnalysis(null);
+    setBatchResults(batch);
+    batch.forEach((item) => saveHistoryItem(item.value, { format: item.format, kind: item.analysis.kind, title: item.analysis.title }));
+    stopCamera();
+  }
+
+  function handleDecoded(value: string, detectedFormat = 'qr_code') {
     if (!value) return;
     const displayFormat = normalizeFormat(detectedFormat);
     const nextAnalysis = analyzeScan(value, displayFormat);
@@ -502,7 +527,37 @@ export function QRScanner() {
         </div>
       )}
 
-      {batchResults.length > 0 && (\n        <div className="overflow-hidden rounded-[28px] border border-cyan-300/20 bg-cyan-300/[.06] p-5">\n          <div className="flex items-center justify-between gap-3">\n            <div>\n              <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-300">Multiple codes found</p>\n              <p className="mt-1 text-sm text-[var(--text-muted)]">{batchResults.length} unique QR/barcode results were saved to your library.</p>\n            </div>\n            <button onClick={() => setBatchResults([])} className="rounded-full p-2 text-[var(--text-muted)] hover:bg-white/10" aria-label="Clear batch results"><RefreshCw size={16} /></button>\n          </div>\n          <div className="mt-4 grid gap-3 lg:grid-cols-2">\n            {batchResults.map((item, index) => (\n              <div key={item.value + item.format} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">\n                <div className="flex items-start gap-3">\n                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-300 text-xs font-black">{index + 1}</span>\n                  <div className="min-w-0">\n                    <p className="text-sm font-bold text-[var(--text)]">{item.analysis.title}</p>\n                    <p className="mt-1 text-[10px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">{item.format}</p>\n                  </div>\n                </div>\n                <p className="mt-3 break-words text-xs leading-5 text-[var(--text)]">{item.value}</p>\n                <div className="mt-3 flex flex-wrap gap-2">\n                  <GlassButton onClick={() => navigator.clipboard?.writeText(item.value)}><Clipboard size={14} /> Copy</GlassButton>\n                  {item.analysis.actionUrl && <a href={item.analysis.actionUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950"><ExternalLink size={14} /> {item.analysis.actionLabel || 'Open'}</a>}\n                </div>\n              </div>\n            ))}\n          </div>\n        </div>\n      )}\n\n      {result && (
+      {batchResults.length > 0 && (
+        <div className="overflow-hidden rounded-[28px] border border-cyan-300/20 bg-cyan-300/[.06] p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-300">Multiple codes found</p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">{batchResults.length} unique QR/barcode results were saved to your library.</p>
+            </div>
+            <button onClick={() => setBatchResults([])} className="rounded-full p-2 text-[var(--text-muted)] hover:bg-white/10" aria-label="Clear batch results"><RefreshCw size={16} /></button>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {batchResults.map((item, index) => (
+              <div key={item.value + item.format} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-300 text-xs font-black">{index + 1}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-[var(--text)]">{item.analysis.title}</p>
+                    <p className="mt-1 text-[10px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">{item.format}</p>
+                  </div>
+                </div>
+                <p className="mt-3 break-words text-xs leading-5 text-[var(--text)]">{item.value}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <GlassButton onClick={() => navigator.clipboard?.writeText(item.value)}><Clipboard size={14} /> Copy</GlassButton>
+                  {item.analysis.actionUrl && <a href={item.analysis.actionUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950"><ExternalLink size={14} /> {item.analysis.actionLabel || 'Open'}</a>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result && (
         <div className="overflow-hidden rounded-[28px] border border-emerald-300/20 bg-emerald-400/[.06] p-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-emerald-300">
