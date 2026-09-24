@@ -5,8 +5,8 @@ import { useTheme } from '../providers/ThemeProvider';
 
 const links = [
   { to: '/', label: 'Home' },
-  { to: '/generator', label: 'Generator' },
-  { to: '/scanner', label: 'Scanner' },
+  { to: '/generator', label: 'Create' },
+  { to: '/scanner', label: 'Scan' },
   { to: '/history', label: 'History' },
   { to: '/settings', label: 'Settings' },
 ];
@@ -16,36 +16,37 @@ export function Navbar() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <nav className="sticky top-4 z-50 mx-auto mb-6 w-[min(100%-1rem,72rem)] rounded-full border border-white/10 bg-black/20 px-3 py-2 shadow-glass backdrop-blur-2xl sm:px-4">
-      <div className="flex items-center justify-between gap-3">
-        <Link to="/" className="flex items-center gap-2 rounded-full px-2 py-1 text-white">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 via-blue-500 to-violet-500 text-white">
-            <ScanSearch size={18} />
-          </span>
-          <span className="hidden text-sm font-semibold sm:block">OR-Generator</span>
-        </Link>
-
-        <div className="hidden items-center gap-1 md:flex">
-          {links.map((link) => {
-            const active = location.pathname === link.to;
-            return (
-              <Link
-                key={link.to}
-                to={link.to}
-                className={`rounded-full px-4 py-2 text-sm transition ${active ? 'bg-white text-slate-950' : 'text-white/75 hover:bg-white/8 hover:text-white'}`}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
-        </div>
-
+    <header className="sticky top-3 z-50 mx-auto mb-2 w-[calc(100%-1rem)] max-w-6xl">
+      <nav className="glass-panel rounded-[24px] p-2 sm:rounded-full">
         <div className="flex items-center gap-2">
-          <GlassButton aria-label="Toggle theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+          <Link to="/" className="group flex shrink-0 items-center gap-2.5 rounded-full px-2 py-1.5">
+            <span className="relative grid h-10 w-10 place-items-center overflow-hidden rounded-[15px] bg-gradient-to-br from-cyan-300 via-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/25">
+              <span className="absolute inset-0 bg-white/15" />
+              <ScanSearch size={19} className="relative" />
+            </span>
+            <span className="hidden sm:block">
+              <span className="block text-sm font-bold tracking-tight text-[var(--text)]">OR-Generator</span>
+              <span className="block text-[10px] font-medium uppercase tracking-[.2em] text-[var(--text-muted)]">QR Studio</span>
+            </span>
+          </Link>
+
+          <div className="mx-auto flex min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {links.map((link) => {
+              const active = location.pathname === link.to;
+              return (
+                <Link key={link.to} to={link.to}
+                  className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold transition sm:px-4 sm:text-sm ${active ? 'bg-white text-slate-950 shadow-md shadow-black/10' : 'text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--text)]'}`}>
+                  {link.label}
+                </Link>
+              );
+            })}
+          </div>
+
+          <GlassButton aria-label="Toggle theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="h-10 w-10 shrink-0 p-0">
             {theme === 'dark' ? <SunMedium size={16} /> : <MoonStar size={16} />}
           </GlassButton>
         </div>
-      </div>
-    </nav>
+      </nav>
+    </header>
   );
 }
