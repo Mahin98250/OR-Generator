@@ -3,6 +3,9 @@ export type HistoryItem = {
   value: string;
   createdAt: number;
   favorite: boolean;
+  format?: string;
+  kind?: string;
+  title?: string;
 };
 
 const STORAGE_KEY = 'or-generator-history';
@@ -31,13 +34,14 @@ export function getHistory(): HistoryItem[] {
   return readHistory().sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export function saveHistoryItem(value: string): HistoryItem {
+export function saveHistoryItem(value: string, metadata: Pick<HistoryItem, 'format' | 'kind' | 'title'> = {}): HistoryItem {
   const trimmed = value.trim();
   const items = readHistory();
   const existing = items.find((item) => item.value === trimmed);
 
   if (existing) {
     existing.createdAt = Date.now();
+    Object.assign(existing, metadata);
     writeHistory(items);
     return existing;
   }
@@ -47,6 +51,7 @@ export function saveHistoryItem(value: string): HistoryItem {
     value: trimmed,
     createdAt: Date.now(),
     favorite: false,
+    ...metadata,
   };
 
   writeHistory([item, ...items].slice(0, 100));
