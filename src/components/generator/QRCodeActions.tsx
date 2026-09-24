@@ -15,57 +15,73 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function base64ToBlob(dataUrl: string, fallbackType: string) {
+  const [header, payload = ''] = dataUrl.split(',');
+  const type = header?.match(/data:([^;]+)/)?.[1] ?? fallbackType;
+  const bytes = Uint8Array.from(atob(payload), (character) => character.charCodeAt(0));
+  return new Blob([bytes], { type });
+}
+
 export function QRCodeActions() {
   const { dataUrl, settings } = useGenerator();
 
   async function copyText() {
     if (!settings.value.trim() || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(settings.value);
+    try {
+      await navigator.clipboard.writeText(settings.value);
+    } catch {
+      // Clipboard can be blocked by the browser or permissions.
+    }
   }
 
   async function copyImage() {
     if (!dataUrl || !navigator.clipboard || typeof ClipboardItem === 'undefined') return;
-
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
-    await navigator.clipboard.write([
-      new ClipboardItem({ [blob.type || 'image/png']: blob }),
-    ]);
+    try {
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      await navigator.clipboard.write([
+        new ClipboardItem({ [blob.type || 'image/png']: blob }),
+      ]);
+    } catch {
+      // Clipboard image support varies by browser.
+    }
   }
 
   function downloadPng() {
     if (!dataUrl) return;
-    const byteCharacters = atob(dataUrl.split(',')[1] ?? '');
-    const bytes = new Uint8Array(byteCharacters.length);
-    for (let index = 0; index < byteCharacters.length; index += 1) {
-      bytes[index] = byteCharacters.charCodeAt(index);
-    }
-    downloadBlob(new Blob([bytes], { type: 'image/png' }), 'qr-code.png');
+    downloadBlob(base64ToBlob(dataUrl, 'image/png'), 'qr-code.png');
   }
 
   async function downloadJpeg() {
     if (!settings.value.trim()) return;
-    const jpeg = await toQrDataUrl(settings, 'image/jpeg');
-    const byteCharacters = atob(jpeg.split(',')[1] ?? '');
-    const bytes = new Uint8Array(byteCharacters.length);
-    for (let index = 0; index < byteCharacters.length; index += 1) {
-      bytes[index] = byteCharacters.charCodeAt(index);
+    try {
+      const jpeg = await toQrDataUrl(settings, 'image/jpeg');
+      downloadBlob(base64ToBlob(jpeg, 'image/jpeg'), 'qr-code.jpg');
+    } catch {
+      // Keep the UI responsive if export fails.
     }
-    downloadBlob(new Blob([bytes], { type: 'image/jpeg' }), 'qr-code.jpg');
   }
 
   async function downloadSvg() {
     if (!settings.value.trim()) return;
-    const svg = await toQrSvg(settings);
-    downloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), 'qr-code.svg');
+    try {
+      const svg = await toQrSvg(settings);
+      downloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), 'qr-code.svg');
+    } catch {
+      // Keep the UI responsive if export fails.
+    }
   }
 
   async function share() {
     if (!navigator.share || !settings.value.trim()) return;
-    await navigator.share({
-      title: 'QR code',
-      text: settings.value,
-    });
+    try {
+      await navigator.share({
+        title: 'QR code',
+        text: settings.value,
+      });
+    } catch {
+      // Ignore cancellation and browser share failures.
+    }
   }
 
   function save() {
@@ -74,6 +90,7 @@ export function QRCodeActions() {
   }
 
   function favorite() {
+    if (!settings.value.trim()) return;
     const item = saveHistoryItem(settings.value);
     toggleFavorite(item.id);
   }
