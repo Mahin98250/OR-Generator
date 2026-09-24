@@ -1,11 +1,11 @@
-import { ImageUp, ScanLine, ShieldCheck, Sparkles, Zap } from 'lucide-react';
+import { ImageUp, ScanLine, ScanBarcode, ShieldCheck, Sparkles, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QRScanner } from '../../components/scanner/QRScanner';
 
 const highlights = [
-  { icon: Zap, title: 'Instant detection', text: 'Live camera scanning with a fast local decoding loop.' },
-  { icon: ImageUp, title: 'Scan screenshots', text: 'Upload or drag in QR images from your gallery.' },
-  { icon: ShieldCheck, title: 'Private by design', text: 'Decoded content stays in your browser.' },
+  { icon: Zap, title: 'Instant multi-format detection', text: 'Scan QR codes and common 1D/2D barcodes from the live camera.' },
+  { icon: ImageUp, title: 'Photos & screenshots', text: 'Scan product labels, tickets, screenshots and saved images.' },
+  { icon: ShieldCheck, title: 'Private by design', text: 'Decoding happens locally in your browser instead of uploading scans.' },
 ];
 
 export function Scanner() {
@@ -18,24 +18,25 @@ export function Scanner() {
           <Link to="/" className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)]">Back to home</Link>
           <div className="mt-5 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-xs font-bold uppercase tracking-[.18em] text-[var(--text-muted)]">
-              <ScanLine size={14} className="text-cyan-300" /> QR Scanner
+              <ScanLine size={14} className="text-cyan-300" /> Smart Scanner
             </span>
             <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Ready to scan
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> QR + Barcode
             </span>
           </div>
           <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-[-.045em] text-[var(--text)] sm:text-6xl">
-            Scan <span className="text-gradient">any QR code.</span>
+            One scanner for <span className="text-gradient">everything.</span>
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--text-muted)] sm:text-base">
-            Point your camera at a QR code, upload a screenshot, or drag in an image. Results can be copied, saved, or opened instantly.
+            Scan QR codes and common product or industrial barcodes with your camera, a screenshot, or an uploaded photo. No second scanner app needed.
           </p>
           <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold text-[var(--text-muted)]">
-            <span className="glass-soft rounded-full px-3 py-2">Camera</span>
-            <span className="glass-soft rounded-full px-3 py-2">Gallery</span>
-            <span className="glass-soft rounded-full px-3 py-2">Flashlight</span>
-            <span className="glass-soft rounded-full px-3 py-2">Camera switch</span>
-            <span className="glass-soft rounded-full px-3 py-2">Zoom</span>
+            <span className="glass-soft inline-flex items-center gap-1.5 rounded-full px-3 py-2"><ScanLine size={13} /> QR codes</span>
+            <span className="glass-soft inline-flex items-center gap-1.5 rounded-full px-3 py-2"><ScanBarcode size={13} /> EAN / UPC</span>
+            <span className="glass-soft rounded-full px-3 py-2">Code 128 / 39</span>
+            <span className="glass-soft rounded-full px-3 py-2">Data Matrix</span>
+            <span className="glass-soft rounded-full px-3 py-2">PDF417</span>
+            <span className="glass-soft rounded-full px-3 py-2">Flashlight + zoom</span>
           </div>
         </div>
       </div>
