@@ -1,4 +1,6 @@
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, Sparkles } from 'lucide-react';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { GeneratorForm } from '../../components/generator/GeneratorForm';
 import { QRPreview } from '../../components/generator/QRPreview';
@@ -9,39 +11,25 @@ import { GeneratorControls } from '../../components/generator/GeneratorControls'
 export function Generator() {
   return (
     <GeneratorProvider>
-      <section className="mx-auto max-w-7xl py-6 sm:py-10">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, ease: 'easeOut' }}
-          className="mb-6 space-y-3"
-        >
-          <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium tracking-[0.2em] text-white/65 uppercase backdrop-blur-xl">
-            Generator Studio
-          </span>
-          <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">Create a QR code with a premium workflow.</h1>
-          <p className="max-w-2xl text-sm leading-7 text-white/65 sm:text-base">
-            Build, preview, and refine QR content inside a polished offline-first workspace designed for speed and clarity.
-          </p>
+      <section className="mx-auto max-w-7xl py-8 sm:py-12">
+        <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} className="mb-7 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-4">
+            <Link to="/" className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)]"><ArrowLeft size={14}/> Back home</Link>
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.22em] text-cyan-300"><Sparkles size={14}/> Generator Studio</div>
+            <h1 className="max-w-3xl text-4xl font-black tracking-[-.04em] text-[var(--text)] sm:text-6xl">Make a QR code <span className="text-gradient">in seconds.</span></h1>
+            <p className="max-w-2xl text-sm leading-7 text-[var(--text-muted)] sm:text-base">Type your content, tune the code, preview it instantly, then export it in the format you need.</p>
+          </div>
+          <div className="glass-soft hidden rounded-2xl px-4 py-3 text-right sm:block"><p className="text-[10px] uppercase tracking-[.2em] text-[var(--text-muted)]">Workspace</p><p className="mt-1 text-sm font-bold text-[var(--text)]">Local · No account</p></div>
         </motion.div>
 
-        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
-          <div className="space-y-6">
-            <GlassCard>
-              <GeneratorForm />
-            </GlassCard>
-            <GlassCard>
-              <GeneratorControls />
-            </GlassCard>
+        <div className="grid gap-5 lg:grid-cols-[1fr_.86fr] lg:items-start">
+          <div className="space-y-5">
+            <GlassCard><GeneratorForm /></GlassCard>
+            <GlassCard><GeneratorControls /></GlassCard>
           </div>
-
-          <div className="space-y-6">
-            <GlassCard>
-              <QRPreview />
-            </GlassCard>
-            <GlassCard>
-              <QRCodeActions />
-            </GlassCard>
+          <div className="space-y-5 lg:sticky lg:top-24">
+            <GlassCard><QRPreview /></GlassCard>
+            <GlassCard><QRCodeActions /></GlassCard>
           </div>
         </div>
       </section>
