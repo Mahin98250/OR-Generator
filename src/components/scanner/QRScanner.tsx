@@ -63,7 +63,7 @@ function normalizeFormat(value?: string) {
   return value
     .replace(/^BarcodeFormat\./, '')
     .replace(/_/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    .replace(/\b\w/g, (letter: string) => letter.toUpperCase());
 }
 
 function isWebUrl(value: string) {
