@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
-import { Camera, ImageUp, Square } from 'lucide-react';
+import { Camera, ImageUp, Save, Square } from 'lucide-react';
 import { GlassButton } from '../ui/GlassButton';
+import { saveHistoryItem } from '../../lib/storage';
 
 export function QRScanner() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -22,6 +23,8 @@ export function QRScanner() {
       setError('Camera access is not supported in this browser.');
       return;
     }
+
+    stopCamera();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -70,6 +73,7 @@ export function QRScanner() {
 
         if (code?.data) {
           setResult(code.data);
+          saveHistoryItem(code.data);
           stopCamera();
           return;
         }
@@ -111,6 +115,7 @@ export function QRScanner() {
 
         if (code?.data) {
           setResult(code.data);
+          saveHistoryItem(code.data);
         } else {
           setError('No QR code was found in that image.');
         }
@@ -176,7 +181,14 @@ export function QRScanner() {
         <div className="space-y-3 rounded-[24px] border border-white/10 bg-white/5 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-white/40">Decoded result</p>
           <p className="break-words text-sm leading-7 text-white/85">{result}</p>
-          <GlassButton type="button" onClick={() => void copyResult()}>Copy result</GlassButton>
+          <div className="flex flex-wrap gap-2">
+            <GlassButton type="button" onClick={() => void copyResult()}>
+              Copy result
+            </GlassButton>
+            <GlassButton type="button" onClick={() => saveHistoryItem(result)} className="gap-2">
+              <Save size={14} /> Save
+            </GlassButton>
+          </div>
         </div>
       ) : null}
     </div>
