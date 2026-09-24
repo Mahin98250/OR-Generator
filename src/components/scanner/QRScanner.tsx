@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { GlassButton } from '../ui/GlassButton';
 import { saveHistoryItem } from '../../lib/storage';
+import { analyzeScan, type ScanAnalysis } from '../../lib/scan';
 
 type ScanMode = 'auto' | 'qr' | 'barcode';
 
@@ -95,6 +96,7 @@ export function QRScanner() {
   const [mode, setMode] = useState<ScanMode>('auto');
   const [engine, setEngine] = useState('Preparing scanner');
   const [supportedFormats, setSupportedFormats] = useState<string[]>([]);
+  const [analysis, setAnalysis] = useState<ScanAnalysis | null>(null);
 
   useEffect(() => () => stopCamera(), []);
 
@@ -162,6 +164,7 @@ export function QRScanner() {
   async function startCamera(nextFacing = facingMode) {
     setError('');
     setResult('');
+    setAnalysis(null);
     stopCamera();
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -249,15 +252,19 @@ export function QRScanner() {
 
   function handleDecoded(value: string, detectedFormat = 'qr_code') {
     if (!value) return;
+    const displayFormat = normalizeFormat(detectedFormat);
+    const nextAnalysis = analyzeScan(value, displayFormat);
     setResult(value);
-    setFormat(normalizeFormat(detectedFormat));
-    saveHistoryItem(value);
+    setFormat(displayFormat);
+    setAnalysis(nextAnalysis);
+    saveHistoryItem(value, { format: displayFormat, kind: nextAnalysis.kind, title: nextAnalysis.title });
     stopCamera();
   }
 
   async function handleFile(file: File) {
     setError('');
     setResult('');
+    setAnalysis(null);
 
     if (!file.type.startsWith('image/')) {
       setError('Please choose a PNG, JPEG, WebP or another image file.');
@@ -506,6 +513,31 @@ export function QRScanner() {
               <RefreshCw size={16} />
             </button>
           </div>
+          {analysis && (
+            <div className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-[var(--text)]">{analysis.title}</p>
+                  <p className="mt-1 break-words text-xs text-[var(--text-muted)]">{analysis.subtitle}</p>
+                </div>
+                {analysis.actionUrl && analysis.actionLabel && (
+                  <a href={analysis.actionUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-full bg-white px-3 py-2 text-xs font-bold text-slate-950 shadow-lg">
+                    {analysis.actionLabel}
+                  </a>
+                )}
+              </div>
+              {Object.keys(analysis.meta).length > 0 && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {Object.entries(analysis.meta).map(([label, value]) => (
+                    <div key={label} className="rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-2">
+                      <p className="text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">{label}</p>
+                      <p className="mt-1 break-words text-xs text-[var(--text)]">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <p className="mt-3 break-words rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4 text-sm leading-6 text-[var(--text)]">{result}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <GlassButton onClick={() => void copyResult()}><Clipboard size={15} /> Copy</GlassButton>
