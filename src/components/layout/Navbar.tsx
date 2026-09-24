@@ -1,6 +1,7 @@
 import { MoonStar, ScanSearch, SunMedium } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { GlassButton } from '../ui/GlassButton';
+import { InstallPWAButton } from '../ui/InstallPWAButton';
 import { useTheme } from '../providers/ThemeProvider';
 
 const links = [
@@ -42,6 +43,7 @@ export function Navbar() {
             })}
           </div>
 
+          <InstallPWAButton />
           <GlassButton aria-label="Toggle theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="h-10 w-10 shrink-0 p-0">
             {theme === 'dark' ? <SunMedium size={16} /> : <MoonStar size={16} />}
           </GlassButton>
