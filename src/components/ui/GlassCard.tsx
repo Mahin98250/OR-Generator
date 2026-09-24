@@ -3,11 +3,7 @@ import type { ReactNode } from 'react';
 
 export function GlassCard({ children }: { children: ReactNode }) {
   return (
-    <motion.div
-      whileHover={{ y: -3 }}
-      transition={{ type: 'spring', stiffness: 240, damping: 22 }}
-      className="glass-panel rounded-[28px] p-5 shadow-glass"
-    >
+    <motion.div whileHover={{ y:-2 }} transition={{ type:'spring', stiffness:280, damping:24 }} className="glass-panel rounded-[30px] p-5 shadow-glass sm:p-6">
       {children}
     </motion.div>
   );
