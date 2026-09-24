@@ -62,7 +62,7 @@ function normalizeFormat(value?: string) {
   if (!value) return 'CODE';
   return value
     .replace(/^BarcodeFormat\./, '')
-    .replaceAll('_', ' ')
+    .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
