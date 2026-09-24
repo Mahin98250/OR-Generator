@@ -44,7 +44,7 @@ export function Tools() {
   return (
     <section className="mx-auto max-w-5xl py-8 sm:py-10">
       <div className="mb-7">
-        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.16em)] text-[var(--text-muted)]"><ScanBarcode size={12} className="text-cyan-300" /> Barcode utilities</div>
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.16em] text-[var(--text-muted)]"><ScanBarcode size={12} className="text-cyan-300" /> Barcode utilities</div>
         <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-5xl">Barcode Lab</h1>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-muted)] sm:text-base">Inspect common retail/product codes locally, verify supported check digits and jump to a search when you need product context.</p>
       </div>
