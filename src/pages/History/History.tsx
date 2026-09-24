@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Download, ExternalLink, Heart, Import, Search, ScanBarcode, Trash2, Upload } from 'lucide-react';
+import { Copy, Download, ExternalLink, Heart, Import, Search, ScanBarcode, Tag, Trash2, Upload } from 'lucide-react';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { GlassButton } from '../../components/ui/GlassButton';
-import { clearHistory, deleteHistoryItem, exportHistory, getHistory, importHistory, toggleFavorite, type HistoryItem } from '../../lib/storage';
+import { clearHistory, deleteHistoryItem, exportHistory, getHistory, importHistory, toggleFavorite, updateHistoryItem, type HistoryItem } from '../../lib/storage';
 import { analyzeScan } from '../../lib/scan';
 
 type Filter = 'all' | 'favorites' | 'qr' | 'barcode';
@@ -11,7 +11,7 @@ export function History() {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState('');\n  const [tagInputs, setTagInputs] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => setItems(getHistory()), []);
@@ -27,7 +27,7 @@ export function History() {
       const matchesQuery = !normalized ||
         item.value.toLowerCase().includes(normalized) ||
         (item.title || '').toLowerCase().includes(normalized) ||
-        (item.format || '').toLowerCase().includes(normalized);
+        (item.format || '').toLowerCase().includes(normalized) ||\n        (item.tags || []).some((tag) => tag.toLowerCase().includes(normalized));
       return matchesFilter && matchesQuery;
     });
   }, [items, query, filter]);
@@ -142,11 +142,11 @@ export function History() {
                       {item.format && <span className="text-[10px] font-semibold text-[var(--text-muted)]">{item.format}</span>}
                     </div>
                     <p className="mt-3 break-words text-sm text-[var(--text)]">{item.value}</p>
-                    <p className="mt-2 text-xs text-[var(--text-muted)]">{new Date(item.createdAt).toLocaleString()}</p>
+                    <p className="mt-2 text-xs text-[var(--text-muted)]">{new Date(item.createdAt).toLocaleString()}</p>\n                    {item.tags && item.tags.length > 0 && (\n                      <div className="mt-2 flex flex-wrap gap-1.5">\n                        {item.tags.map((tag) => <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-cyan-300/10 px-2 py-1 text-[10px] font-semibold text-cyan-200"><Tag size={10} />{tag}</span>)}\n                      </div>\n                    )}
                   </div>
                   {item.favorite && <Heart size={15} className="mt-1 shrink-0 fill-current text-pink-400" />}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3">\n                  <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]"><Tag size={12} /> Tags</label>\n                  <input\n                    value={tagInputs[item.id] ?? (item.tags || []).join(', ')}\n                    onChange={(event) => setTagInputs((current) => ({ ...current, [item.id]: event.target.value }))}\n                    onBlur={() => {\n                      const tags = (tagInputs[item.id] ?? (item.tags || []).join(',' )).split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 12);\n                      setItems(updateHistoryItem(item.id, { tags }));\n                    }}\n                    placeholder="school, work, shopping…"\n                    className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-2 text-xs text-[var(--text)] outline-none placeholder:text-[var(--text-muted)]"\n                  />\n                </div>\n                <div className="mt-3 flex flex-wrap gap-2">
                   <GlassButton type="button" onClick={() => void copy(item.value)}><Copy size={14} /> Copy</GlassButton>
                   {analysis.actionUrl && <a href={analysis.actionUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2 text-sm font-semibold text-[var(--text)]"><ExternalLink size={14} /> Open</a>}
                   <GlassButton type="button" onClick={() => setItems(toggleFavorite(item.id))} aria-label="Toggle favorite"><Heart size={14} className={item.favorite ? 'fill-current' : ''} /></GlassButton>

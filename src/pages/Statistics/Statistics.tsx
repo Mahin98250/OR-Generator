@@ -27,7 +27,7 @@ export function Statistics() {
     };
   }, [items]);
 
-  const maxKind = Math.max(1, ...stats.byKind.map(([, count]) => count));
+  const tagCounts = useMemo(() => {\n    const counts = new Map<string, number>();\n    items.forEach((item) => (item.tags || []).forEach((tag) => counts.set(tag, (counts.get(tag) || 0) + 1)));\n    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);\n  }, [items]);\n  const maxKind = Math.max(1, ...stats.byKind.map(([, count]) => count));\n  const maxTag = Math.max(1, ...tagCounts.map(([, count]) => count));
 
   return (
     <section className="mx-auto max-w-5xl py-8 sm:py-10">
@@ -97,7 +97,7 @@ export function Statistics() {
         </GlassCard>
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-3">
+      <div className="mt-5">\n        <GlassCard>\n          <div className="flex items-center gap-2"><BarChart3 size={18} className="text-cyan-300" /><div><h2 className="font-bold text-[var(--text)]">Collections by tag</h2><p className="text-xs text-[var(--text-muted)]">Your most-used local labels</p></div></div>\n          <div className="mt-5 grid gap-3 sm:grid-cols-2">\n            {tagCounts.length === 0 ? <p className="text-sm text-[var(--text-muted)]">Add tags in the Scan Library to create lightweight collections.</p> : tagCounts.map(([tag, count]) => (\n              <div key={tag} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3">\n                <div className="flex justify-between text-xs font-semibold"><span className="text-[var(--text)]">#{tag}</span><span className="text-[var(--text-muted)]">{count}</span></div>\n                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--bg-soft)]"><div className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-indigo-500" style={{ width: (count / maxTag) * 100 + '%' }} /></div>\n              </div>\n            ))}\n          </div>\n        </GlassCard>\n      </div>\n\n      <div className="mt-5 flex flex-wrap gap-3">
         <GlassButton onClick={() => window.location.hash = '#/scanner'}><ScanLine size={15} /> Scan now</GlassButton>
         <GlassButton onClick={() => window.location.hash = '#/history'}><BarChart3 size={15} /> Open library</GlassButton>
       </div>

@@ -35,7 +35,7 @@ export function getHistory(): HistoryItem[] {
   return readHistory().sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export function saveHistoryItem(value: string, metadata: Pick<HistoryItem, 'format' | 'kind' | 'title'> = {}): HistoryItem {
+export function saveHistoryItem(value: string, metadata: Pick<HistoryItem, 'format' | 'kind' | 'title' | 'tags' | 'note'> = {}): HistoryItem {
   const trimmed = value.trim();
   if (!trimmed) throw new Error('Cannot save an empty scan.');
 
@@ -75,7 +75,7 @@ export function deleteHistoryItem(id: string): HistoryItem[] {
   return items.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export function clearHistory() {
+export function updateHistoryItem(id: string, patch: Partial<Pick<HistoryItem, 'favorite' | 'format' | 'kind' | 'title' | 'tags' | 'note'>>): HistoryItem[] {\n  const items = readHistory().map((item) => item.id === id ? { ...item, ...patch } : item);\n  writeHistory(items);\n  return items.sort((a, b) => b.createdAt - a.createdAt);\n}\n\nexport function clearHistory() {
   writeHistory([]);
 }
 

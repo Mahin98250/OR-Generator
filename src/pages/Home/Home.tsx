@@ -5,8 +5,8 @@ import { GlassCard } from '../../components/ui/GlassCard';
 
 const features = [
   { icon: Zap, title: 'Instant generation', text: 'Create QR codes live as you type.' },
-  { icon: ScanLine, title: 'Camera + image scan', text: 'Decode QR codes directly in your browser.' },
-  { icon: ShieldCheck, title: 'Local-first privacy', text: 'Your history stays in this browser.' },
+  { icon: ScanLine, title: 'Smart QR + barcode scan', text: 'Camera, image upload, multi-format decoding and local results.' },
+  { icon: ShieldCheck, title: 'Library + backup', text: 'Tag scans, favorite them and export your local library.' },
 ];
 
 export function Home() {
@@ -26,7 +26,7 @@ export function Home() {
                 QR codes, <span className="text-gradient">beautifully simple.</span>
               </h1>
               <p className="max-w-xl text-base leading-7 text-[var(--text-muted)] sm:text-lg">
-                Generate, scan, save and share QR codes from one polished workspace. No account. No clutter. Just a fast QR studio.
+                Generate, scan, organize and share QR codes and barcodes from one polished workspace. No account. No clutter.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
