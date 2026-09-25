@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Activity, CheckCircle2, Download, FileUp, Gauge, LockKeyhole, Radio, ScanLine, ShieldCheck, TimerReset, WifiOff, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import jsQR from 'jsqr';
+import { QrDecodePool } from '../../lib/qrDecodePool';
+import { createBenchmarkStart, finishBenchmark, type OpticalBenchmark } from '../../lib/opticalBenchmark';
 import { OR_TRANSFER_GRID_SIZE, addTransferFrame, createTransfer, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
 import { drawQrGrid } from '../../lib/qrCanvas';
 import { createFountainDecoder, createFountainTransfer, FOUNTAIN_BLOCK_BYTES, FOUNTAIN_GRID_SIZE, isFountainFrame, parseFountainFrame, type FountainDecoder, type FountainDroplet, type FountainPlan } from '../../lib/fountain';
@@ -40,6 +41,8 @@ export function Transfer() {
   const [result,setResult]=useState<Result|null>(null);
   const [compatMissing,setCompatMissing]=useState<number|null>(null);
   const [autoTune,setAutoTune]=useState(true);
+  const [benchmarking,setBenchmarking]=useState(false);
+  const [benchmark,setBenchmark]=useState<OpticalBenchmark|null>(null);
   const [telemetry,setTelemetry]=useState<Telemetry>({startedAt:null,renderMs:0,renderCount:0,renderFps:0,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,decodeMs:0,scanDelayMs:55});
   const inputRef=useRef<HTMLInputElement>(null);
   const videoRef=useRef<HTMLVideoElement>(null);
@@ -47,6 +50,7 @@ export function Transfer() {
   const detectorRef=useRef<Detector|null>(null);
   const receivingRef=useRef(false);
   const fallbackCanvasRef=useRef<HTMLCanvasElement|null>(null);
+  const qrPoolRef=useRef<QrDecodePool|null>(null);
   const timerRef=useRef<number|null>(null);
   const fountainDecoderRef=useRef<FountainDecoder|null>(null);
   const fountainMetaRef=useRef<FountainDroplet|null>(null);
@@ -60,6 +64,11 @@ export function Transfer() {
   const duplicateCountRef=useRef(0);
   const lastTelemetryRef=useRef(0);
   const scanDelayRef=useRef(55);
+  const benchmarkStartedRef=useRef<number|null>(null);
+  const benchmarkFramesRef=useRef(0);
+  const benchmarkCodesRef=useRef(0);
+  const benchmarkUniqueRef=useRef(new Set<string>());
+  const benchmarkDecodeSamplesRef=useRef<number[]>([]);
 
   useEffect(()=>()=>{ stopReceive(); stopPlayback(); if(result?.url) URL.revokeObjectURL(result.url); },[result]);
   useEffect(()=>{
@@ -114,7 +123,9 @@ export function Transfer() {
 
   function stopPlayback(){ setPlaying(false); if(timerRef.current!==null){window.clearInterval(timerRef.current);timerRef.current=null;} }
   function stopReceive(){
-    receivingRef.current=false; detectorRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false);
+    receivingRef.current=false; detectorRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null;
+    qrPoolRef.current?.terminate(); qrPoolRef.current=null;
+    setReceiving(false);
   }
   function resetDecoder(){ fountainDecoderRef.current=null; fountainMetaRef.current=null; recentRef.current.clear(); }
 
@@ -129,6 +140,27 @@ export function Transfer() {
       }
       setFile(value);
     }catch(e){setFile(null);setFountain(null);setCompat(null);setQr('');setError(e instanceof Error?e.message:'Unable to prepare this file.');}
+  }
+
+  function recordBenchmark(codes:string[],decodeMs=0){
+    if(!benchmarking)return;
+    benchmarkFramesRef.current+=1;
+    benchmarkCodesRef.current+=codes.length;
+    for(const value of codes)benchmarkUniqueRef.current.add(value);
+    if(decodeMs>0)benchmarkDecodeSamplesRef.current.push(decodeMs);
+    const started=benchmarkStartedRef.current;
+    if(started!==null && performance.now()-started>=10000){
+      const completed=finishBenchmark(started,benchmarkFramesRef.current,benchmarkCodesRef.current,benchmarkUniqueRef.current.size,benchmarkDecodeSamplesRef.current,decodedBytesRef.current);
+      setBenchmark(completed);
+      setBenchmarking(false);
+      benchmarkStartedRef.current=null;
+    }
+  }
+
+  function startBenchmark(){
+    if(!receiving)return;
+    benchmarkFramesRef.current=0; benchmarkCodesRef.current=0; benchmarkUniqueRef.current.clear(); benchmarkDecodeSamplesRef.current=[];
+    benchmarkStartedRef.current=createBenchmarkStart(); setBenchmark(null); setBenchmarking(true);
   }
 
   function acceptValue(value:string){
@@ -176,6 +208,13 @@ export function Transfer() {
     }
   }
 
+  async function consumeDetected(found:Array<{rawValue?:string}>,decodeMs:number){
+    const values=found.map(item=>item.rawValue).filter((value):value is string=>Boolean(value));
+    recordBenchmark(values,decodeMs);
+    await Promise.all(values.map(value=>processValue(value)));
+    return values.length;
+  }
+
   async function scanLoop(){
     if(!receivingRef.current||!videoRef.current||!detectorRef.current)return;
     const started=performance.now();
@@ -183,7 +222,7 @@ export function Transfer() {
     try{
       const found=await detectorRef.current.detect(videoRef.current);
       foundCount=found.length;
-      await Promise.all(found.map(item=>item.rawValue?processValue(item.rawValue):Promise.resolve()));
+      await consumeDetected(found,performance.now()-started);
     }catch{}
     const decodeMs=performance.now()-started;
     const now=performance.now();
@@ -218,17 +257,26 @@ export function Transfer() {
       }else{
         const canvas=document.createElement('canvas'); fallbackCanvasRef.current=canvas;
         const ctx=canvas.getContext('2d',{willReadFrequently:true});
+        qrPoolRef.current=new QrDecodePool();
         const loop=async()=>{
-          if(!receivingRef.current||!videoRef.current||!ctx)return;
+          if(!receivingRef.current||!videoRef.current||!ctx||!qrPoolRef.current)return;
           const video=videoRef.current,w=video.videoWidth,h=video.videoHeight;
           if(w&&h){
-            const hw=Math.floor(w/2),hh=Math.floor(h/2);canvas.width=hw;canvas.height=hh;
-            for(const [x,y] of [[0,0],[hw,0],[0,hh],[hw,hh]] as const){
-              ctx.drawImage(video,x,y,hw,hh,0,0,hw,hh);
-              const image=ctx.getImageData(0,0,hw,hh);
-              const decoded=jsQR(image.data,hw,hh,{inversionAttempts:'dontInvert'});
-              if(decoded?.data)try{await processValue(decoded.data);}catch(e){setError(e instanceof Error?e.message:'Transfer decode failed.');}
-              if(!receivingRef.current)return;
+            canvas.width=w; canvas.height=h;
+            ctx.drawImage(video,0,0,w,h);
+            const image=ctx.getImageData(0,0,w,h);
+            const pool=qrPoolRef.current;
+            const maxDepth=telemetry.decodeMs>75?1:2;
+            const job=pool.decode(image.data.buffer,w,h,maxDepth);
+            if(job){
+              try{
+                const decoded=await job;
+                recordBenchmark(decoded.values,decoded.processingMs);
+                await Promise.all(decoded.values.map(value=>processValue(value)));
+                const decodeMs=decoded.processingMs;
+                setTelemetry(prev=>({...prev,decodeMs:prev.decodeMs===0?decodeMs:prev.decodeMs*.7+decodeMs*.3,detectedPerSecond:decoded.values.length>0?prev.detectedPerSecond:prev.detectedPerSecond}));
+                scanDelayRef.current=decodeMs>75?Math.min(180,Math.max(70,Math.round(decodeMs*.9))):decoded.values.length>0?Math.max(25,scanDelayRef.current-4):Math.min(85,scanDelayRef.current+2);
+              }catch(e){setError(e instanceof Error?e.message:'QR decoder worker failed.');}
             }
           }
           if(receivingRef.current)window.setTimeout(()=>void loop(),scanDelayRef.current);
@@ -272,14 +320,14 @@ export function Transfer() {
           <label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Auto tune<select value={autoTune?'on':'off'} onChange={e=>setAutoTune(e.target.value==='on')} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="on">On · render-safe</option><option value="off">Off · manual</option></select></label><label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Speed<select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="60">60 ms · extreme</option><option value="80">80 ms · very fast</option><option value="100">100 ms · recommended</option><option value="150">150 ms · safe</option><option value="250">250 ms · compatibility</option></select></label><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Render</b><p className="mt-1 text-[var(--text-muted)]">{telemetry.renderMs.toFixed(1)} ms · {intervalMs?Math.round(1000/intervalMs):0} FPS target</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Payload</b><p className="mt-1 text-[var(--text-muted)]">{fountain?FOUNTAIN_BLOCK_BYTES+' bytes/block':'~1875 bytes/frame'}</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Lanes</b><p className="mt-1 text-[var(--text-muted)]">4 QR codes</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Recovery</b><p className="mt-1 text-[var(--text-muted)]">{fountain?'Fountain':'Sequential'}</p></div></div>}
       </div>
     </div> : <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_.8fr]">
-      <div className="glass-panel overflow-hidden rounded-[28px] p-4"><video ref={videoRef} muted playsInline className="aspect-video w-full rounded-2xl bg-black object-cover"/><div className="mt-3 flex flex-wrap gap-2"><button onClick={()=>{if(receiving)stopReceive();else void startReceive();}} className="rounded-full bg-white px-4 py-2 text-sm font-black text-slate-950">{receiving?'Stop receiver':'Start receiver'}</button><span className="rounded-full bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300">{receiving?'Scanning 4 QR lanes':'Camera idle'}</span></div></div>
+      <div className="glass-panel overflow-hidden rounded-[28px] p-4"><video ref={videoRef} muted playsInline className="aspect-video w-full rounded-2xl bg-black object-cover"/><div className="mt-3 flex flex-wrap gap-2"><button onClick={()=>{if(receiving)stopReceive();else void startReceive();}} className="rounded-full bg-white px-4 py-2 text-sm font-black text-slate-950">{receiving?'Stop receiver':'Start receiver'}</button><span className="rounded-full bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300">{receiving?'Scanning multi-QR':'Camera idle'}</span>{receiving&&<button onClick={startBenchmark} className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-bold text-cyan-200">{benchmarking?'Benchmarking…':'10s benchmark'}</button>}</div></div>
       <div className="glass-panel rounded-[28px] p-5"><LockKeyhole size={20} className="text-cyan-300"/><p className="mt-3 font-bold">Loss-tolerant receiver</p><p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">Start the receiver before or after the sender. Fountain mode does not require frame 1, frame 2, frame 3… in order.</p><div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-2xl bg-cyan-300/[.06] p-3"><Activity size={16} className="text-cyan-300"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Decode</p><p className="mt-1 text-sm font-black">{telemetry.detectedPerSecond.toFixed(1)}/s</p></div>
           <div className="rounded-2xl bg-cyan-300/[.06] p-3"><Zap size={16} className="text-cyan-300"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Goodput</p><p className="mt-1 text-sm font-black">{telemetry.goodputKbps.toFixed(1)} KB/s</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{(telemetry.goodputKbps/1024).toFixed(2)} MB/s</p></div>
           <div className="rounded-2xl bg-white/5 p-3"><TimerReset size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Detector</p><p className="mt-1 text-sm font-black">{telemetry.decodeMs.toFixed(0)} ms</p></div>
           <div className="rounded-2xl bg-white/5 p-3"><Gauge size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Scan cadence</p><p className="mt-1 text-sm font-black">{Math.round(telemetry.scanDelayMs)} ms</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{telemetry.duplicates} duplicates</p></div>
         </div>
-        {progress&&<div className="mt-5 rounded-2xl bg-white/5 p-4"><p className="truncate text-sm font-bold">{progress.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{progress.mode==='fountain'?`${progress.received.toLocaleString()} unique droplets · ${progress.total.toLocaleString()} source blocks`:`${progress.received} / ${progress.total} frames`}</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100,Math.round(progress.received/progress.total*100))}%`}}/></div></div>}{result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><CheckCircle2 className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}{error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}</div>
+        {benchmark&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-[.14em] text-cyan-200">Benchmark result</p><span className="text-[10px] text-[var(--text-muted)]">{(benchmark.durationMs/1000).toFixed(1)} s</span></div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><div><p className="text-[10px] text-[var(--text-muted)]">Codes/sec</p><p className="text-sm font-black">{benchmark.peakDecodeRate.toFixed(1)}</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Codes/frame</p><p className="text-sm font-black">{benchmark.averageCodesPerFrame.toFixed(2)}</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Unique</p><p className="text-sm font-black">{benchmark.uniqueCodes}</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Goodput</p><p className="text-sm font-black">{benchmark.goodputKbps.toFixed(1)} KB/s</p></div></div><p className="mt-3 text-[10px] leading-5 text-[var(--text-muted)]">Physical benchmark: point the receiver at the sender's QR stream during the 10-second measurement window.</p></div>}{progress&&<div className="mt-5 rounded-2xl bg-white/5 p-4"><p className="truncate text-sm font-bold">{progress.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{progress.mode==='fountain'?`${progress.received.toLocaleString()} unique droplets · ${progress.total.toLocaleString()} source blocks`:`${progress.received} / ${progress.total} frames`}</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100,Math.round(progress.received/progress.total*100))}%`}}/></div></div>}{result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><CheckCircle2 className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}{error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}</div>
     </div>}
     <div className="mt-5 grid gap-3 md:grid-cols-3">{[['01','Encode','The file becomes source blocks and optical droplets.'],['02','Stream','Four QR lanes continuously send different information.'],['03','Recover','Missing frames are tolerated and SHA-256 verifies the result.']].map(([n,t,d])=><div key={n} className="glass-panel rounded-[24px] p-5"><span className="text-xs font-black text-cyan-300">{n}</span><h2 className="mt-2 font-bold">{t}</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{d}</p></div>)}</div>
   </section>;
