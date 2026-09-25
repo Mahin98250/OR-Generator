@@ -120,7 +120,18 @@ export function parseTransferFrame(value:string): TransferFrame | null {
   const parts=value.split('|');
   if (!isTransferFrame(value) || parts.length !== 8) return null;
 
-  const [,session,mimeRaw,nameRaw,sizeRaw,indexRaw,totalRaw,data]=parts;
+  const [
+    sessionRaw,
+    mimeRaw,
+    nameRaw,
+    sizeRaw,
+    hash,
+    indexRaw,
+    totalRaw,
+    data,
+  ]=parts;
+
+  const session=sessionRaw.slice(OR_TRANSFER_PREFIX.length);
   const index=Number(indexRaw);
   const total=Number(totalRaw);
   const size=Number(sizeRaw);
@@ -129,7 +140,7 @@ export function parseTransferFrame(value:string): TransferFrame | null {
     !session ||
     !mimeRaw ||
     !nameRaw ||
-    !hashSafe(parts[5]) ||
+    !hashSafe(hash) ||
     !data ||
     !Number.isInteger(index) ||
     !Number.isInteger(total) ||
@@ -148,7 +159,7 @@ export function parseTransferFrame(value:string): TransferFrame | null {
       mime:decodeURIComponent(mimeRaw),
       name:decodeName(nameRaw),
       size,
-      hash:parts[5],
+      hash,
       index,
       total,
       data,
@@ -161,7 +172,6 @@ export function parseTransferFrame(value:string): TransferFrame | null {
 function hashSafe(value: string) {
   return /^[a-f0-9]{64}$/i.test(value);
 }
-
 export function getTransferMissingFrames(session:string) {
   const raw=readState(storageKey(session));
   if(!raw) return [];
