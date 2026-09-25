@@ -51,7 +51,6 @@ export function finishBenchmark(
       const bytes=end.bytesRecovered-start.bytesRecovered;
       peakDecodeRate=Math.max(peakDecodeRate,codes/elapsed);
       peakGoodputKbps=Math.max(peakGoodputKbps,(bytes/1024)/elapsed);
-      break;
     }
   }
 
