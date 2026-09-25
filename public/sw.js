@@ -1,5 +1,5 @@
-const CACHE = 'opticode-studio-v3';
-const BASE = '/OR-Generator/';
+const CACHE = 'opticode-studio-v4';
+const BASE = '/OptiCode-Studio/';
 const SHELL = [BASE, BASE + 'manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
