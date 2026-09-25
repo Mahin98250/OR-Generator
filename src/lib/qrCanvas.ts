@@ -41,6 +41,36 @@ function toMatrix(value: string): QrMatrix {
   };
 }
 
+export function createQrMatrices(values: string[]) {
+  return values.map((value) => toMatrix(value));
+}
+
+export function drawQrMatricesToCanvas(
+  canvas: HTMLCanvasElement,
+  matrices: QrMatrix[],
+  size = 900,
+  gap = 14,
+) {
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas unavailable.');
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, size, size);
+  const cell = Math.floor((size - gap * 3) / 2);
+  const positions = [
+    [gap, gap],
+    [gap * 2 + cell, gap],
+    [gap, gap * 2 + cell],
+    [gap * 2 + cell, gap * 2 + cell],
+  ] as const;
+
+  matrices.slice(0, 4).forEach((matrix, i) => {
+    drawMatrixToCanvas(ctx, matrix, positions[i][0], positions[i][1], cell, 10);
+  });
+}
+
 export function drawQrToCanvas(
   ctx: CanvasRenderingContext2D,
   value: string,
