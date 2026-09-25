@@ -592,7 +592,7 @@ export function QRScanner() {
             <div><p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-300">Multi-QR Photo</p><p className="mt-1 text-sm text-[var(--text-muted)]">Frame {multiProgress.received} of {multiProgress.total} received. Scan the remaining frames in any order.</p></div>
             <span className="text-sm font-black text-[var(--text)]">{Math.round(multiProgress.received / multiProgress.total * 100)}%</span>
           </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width: \`${Math.min(100, multiProgress.received / multiProgress.total * 100)}%\`}} /></div>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{ width: `${Math.min(100, multiProgress.received / multiProgress.total * 100)}%` }} /></div>
         </div>
       )}
 
