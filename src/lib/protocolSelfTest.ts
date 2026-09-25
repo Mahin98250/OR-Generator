@@ -243,6 +243,85 @@ async function fountainRoundTrip() {
   return plan.blocks + ' source blocks · ~25% simulated frame loss · late join · out-of-order delivery · duplicates · exact SHA-256';
 }
 
+
+
+async function fountainRecoveryStress() {
+  const sizes = [9_100, 31_700, 96_400];
+  let completed = 0;
+  let worstSeen = 0;
+
+  for (const size of sizes) {
+    const original = makeBytes(size, size % 251);
+    const file = new File([original], 'diagnostic-fountain-stress.bin', { type: 'application/octet-stream' });
+    const plan = await createFountainTransfer(file);
+    const count = Math.ceil(plan.blocks * 1.45);
+    const frames: FountainDroplet[] = [];
+
+    for (let i = 0; i < count; i += 1) {
+      const raw = await plan.getDroplet(i % 4, i);
+      const parsed = parseFountainFrame(raw);
+      assert(parsed, 'Stress droplet ' + i + ' failed to parse.');
+      // Deterministic optical-loss model: keep 3 of every 4 frames, then
+      // scramble delivery and inject duplicates.
+      if ((i * 17 + 11) % 4 !== 0) frames.push(parsed);
+    }
+
+    worstSeen = Math.max(worstSeen, frames.length);
+    const shuffled = [...frames].sort((a, b) => {
+      const av = (a.seed ^ (a.seed >>> 16)) >>> 0;
+      const bv = (b.seed ^ (b.seed >>> 16)) >>> 0;
+      return av - bv;
+    });
+    const delivery = [...shuffled, ...shuffled.slice(0, Math.min(12, shuffled.length))];
+    const first = delivery[0];
+    assert(first, 'Stress delivery was empty.');
+
+    const decoder = createFountainDecoder(first);
+    let complete = false;
+    for (const frame of delivery) {
+      const result = decoder.add(frame);
+      complete = result.complete;
+      if (complete) break;
+    }
+
+    const rebuilt = await decoder.reconstruct();
+    assert(rebuilt, 'Fountain stress case failed at ' + size + ' bytes.');
+    expectEqualBytes(rebuilt.bytes, original, 'Fountain stress ' + size);
+    assert(rebuilt.hash === plan.hash, 'Fountain stress SHA-256 mismatch at ' + size + ' bytes.');
+    assert(decoder.seen() <= delivery.length, 'Fountain duplicate accounting exceeded delivered frames.');
+    completed += 1;
+  }
+
+  return completed + ' stress cases · deterministic 25% frame loss · reordering · duplicates · ' + worstSeen + ' peak delivered droplets';
+}
+
+async function fountainSeedContinuity() {
+  const original = makeBytes(52_000, 201);
+  const file = new File([original], 'diagnostic-fountain-sequence.bin', { type: 'application/octet-stream' });
+  const plan = await createFountainTransfer(file);
+  const randomSeeds = new Set<number>();
+  const systematicTargets = new Set<number>();
+
+  for (let i = 0; i < 2_000; i += 1) {
+    const randomRaw = await plan.getDroplet(2, i);
+    const randomFrame = parseFountainFrame(randomRaw);
+    assert(randomFrame, 'Random sequence frame failed to parse.');
+    assert((randomFrame.seed & 0x80000000) === 0, 'Random fountain seed crossed the systematic seed range.');
+    assert(!randomSeeds.has(randomFrame.seed), 'Random fountain seed repeated at sequence ' + i + '.');
+    randomSeeds.add(randomFrame.seed);
+
+    const systematicRaw = await plan.getDroplet(0, i);
+    const systematicFrame = parseFountainFrame(systematicRaw);
+    assert(systematicFrame, 'Systematic sequence frame failed to parse.');
+    assert(systematicFrame.degree === 1, 'Systematic lane stopped being degree-1.');
+    systematicTargets.add(systematicFrame.seed & 0x7fffffff);
+  }
+
+  assert(randomSeeds.size === 2_000, 'Deterministic random seed stream repeated.');
+  assert(systematicTargets.size === Math.min(plan.blocks, 1_000), 'Systematic lane did not cycle through source blocks correctly.');
+  return '2,000 deterministic random seeds + systematic source coverage verified';
+}
+
 async function scanFormatCompatibility() {
   const cases = [
     { input: 'https://example.com', kind: 'url', title: 'Website' },
@@ -365,6 +444,8 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
   return Promise.all([
     runCase('OR Transfer · round trip', transferRoundTrip),
     runCase('OR Transfer · fountain round trip', fountainRoundTrip),
+    runCase('OR Transfer · fountain recovery stress', fountainRecoveryStress),
+    runCase('OR Transfer · fountain seed continuity', fountainSeedContinuity),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
