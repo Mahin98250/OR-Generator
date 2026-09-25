@@ -436,7 +436,7 @@ async function optiFrameMultiLaneRoundTrip() {
     }
 
     const layout = getOptiLaneLayout(laneCount);
-    assert(surface.canvas.width === layout.columns * 128 && surface.canvas.height === layout.rows * 128, 'Lane surface dimensions mismatch.');
+    assert(surface.canvas.width === layout.columns * 384 && surface.canvas.height === layout.rows * 384, 'Lane surface dimensions mismatch.');
   }
 
   return '1×, 2×, and 4× lane surfaces cropped and decoded byte-for-byte';
