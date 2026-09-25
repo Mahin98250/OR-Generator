@@ -136,8 +136,10 @@ export class OptiFrameDecodePool {
     if (jobs.length === 0) return [];
 
     const results: Array<OptiFrameWorkerResult | null> = Array(jobs.length).fill(null);
+    if (this.capacity === 0) return results;
+
     const queue = jobs.map((job, index) => ({ ...job, index }));
-    const runnerCount = Math.max(1, Math.min(this.capacity, jobs.length));
+    const runnerCount = Math.min(this.capacity, jobs.length);
 
     const run = async () => {
       while (queue.length > 0) {
