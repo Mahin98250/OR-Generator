@@ -299,6 +299,30 @@ async function fountainRecoveryStress() {
   return completed + ' stress cases · deterministic 25% frame loss · reordering · duplicates · ' + worstSeen + ' peak delivered droplets';
 }
 
+async function fountainFrameIntegrity() {
+  const original = makeBytes(3_900, 47);
+  const file = new File([original], 'diagnostic-frame-integrity.bin', { type: 'application/octet-stream' });
+  const plan = await createFountainTransfer(file);
+  const raw = await plan.getDroplet(2, 11);
+  const frame = parseFountainFrame(raw);
+
+  assert(frame, 'Fountain v2 frame did not parse.');
+  assert(frame.version === 2, 'Fountain sender did not emit protocol version 2.');
+  assert(frame.data.length > 100, 'Fountain frame payload unexpectedly short.');
+
+  const parts = raw.split('|');
+  const corruptedIntegrity = [...parts];
+  const data = corruptedIntegrity[9];
+  corruptedIntegrity[9] = data.slice(0, -1) + (data.endsWith('0') ? '1' : '0');
+  assert(parseFountainFrame(corruptedIntegrity.join('|')) === null, 'Corrupted fountain frame CRC was accepted.');
+
+  const impossibleMetadata = [...parts];
+  impossibleMetadata[5] = String(Number(impossibleMetadata[5]) + 1);
+  assert(parseFountainFrame(impossibleMetadata.join('|')) === null, 'Inconsistent fountain block count was accepted.');
+
+  return 'v2 frame CRC rejection + inconsistent block-count rejection verified';
+}
+
 async function fountainSeedContinuity() {
   const original = makeBytes(52_000, 201);
   const file = new File([original], 'diagnostic-fountain-sequence.bin', { type: 'application/octet-stream' });
@@ -515,6 +539,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OR Transfer · fountain round trip', fountainRoundTrip),
     runCase('OR Transfer · fountain recovery stress', fountainRecoveryStress),
     runCase('OR Transfer · fountain seed continuity', fountainSeedContinuity),
+    runCase('OR Transfer · frame integrity', fountainFrameIntegrity),
     runCase('Performance · QR encoder worker', qrEncoderWorkerDiagnostic),
     runCase('OptiFrame · custom codec round trip', async () => { const r = optiFrameSelfTest(); return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified'; }),
     runCase('OptiFrame · worker perspective decode', optiFrameWorkerDiagnostic),
