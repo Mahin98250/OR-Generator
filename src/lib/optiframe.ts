@@ -288,8 +288,8 @@ function searchFinder(image: ImageData, corner: Corner) {
   const minDim = Math.min(width, height);
   const step = Math.max(5, Math.round(minDim / 110));
   const minScale = Math.max(1.4, minDim / 320);
-  const maxScale = Math.min(34, minDim / 10);
-  const scaleStep = Math.max(1.6, minDim / 150);
+  const maxScale = Math.min(18, minDim / 12);
+  const scaleStep = Math.max(1.2, minDim / 180);
 
   const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.45);
   const xEnd = corner.includes('l') ? Math.floor(width * 0.58) : width;
@@ -377,14 +377,15 @@ function project(h: number[], u: number, v: number): [number, number] {
   ];
 }
 
-function estimateCalibration(image: ImageData, anchors: Array<[number, number]>) {
+function estimateCalibration(image: ImageData, anchors: OptiFrameAnchor[]) {
   const values: { dark: number; light: number }[] = [];
-  for (const [cx, cy] of anchors) {
+  for (const anchor of anchors) {
+    const { x: cx, y: cy, scale } = anchor;
     const ring: number[] = [];
     const center: number[] = [];
     for (let r = 0; r < FINDER_SIZE; r++) {
       for (let c = 0; c < FINDER_SIZE; c++) {
-        const value = bilinear(image, cx + (c - 4) * 1, cy + (r - 4) * 1);
+        const value = bilinear(image, cx + (c - 4) * scale, cy + (r - 4) * scale);
         if (finderBit(r, c)) center.push(value);
         else ring.push(value);
       }
@@ -441,7 +442,7 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
   const reverse = solveHomography(target, anchors.map(anchor => [anchor.x, anchor.y]));
   if (!reverse) return null;
 
-  const calibration = estimateCalibration(image, anchors.map(anchor => [anchor.x, anchor.y]));
+  const calibration = estimateCalibration(image, anchors);
   if (!calibration) return null;
 
   const bits: number[] = [];
@@ -480,5 +481,21 @@ export function optiFrameSelfTest() {
   if (!decoded || decoded.sequence !== 7 || decoded.total !== 19 || decoded.payload.length !== payload.length || decoded.payload.some((v, i) => v !== payload[i])) {
     throw new Error('OptiFrame round trip failed.');
   }
+
+  const warped = document.createElement('canvas');
+  warped.width = 360;
+  warped.height = 320;
+  const ctx = warped.getContext('2d');
+  if (!ctx) throw new Error('Perspective self-test canvas unavailable.');
+  ctx.fillStyle = '#777';
+  ctx.fillRect(0, 0, warped.width, warped.height);
+  ctx.setTransform(1, 0.16, -0.08, 1, 70, 60);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(encoded.canvas, 0, 0);
+  const perspective = decodeOptiFramePerspective(warped);
+  if (!perspective || perspective.frame.sequence !== 7 || perspective.frame.total !== 19 || perspective.frame.payload.length !== payload.length || perspective.frame.payload.some((v, i) => v !== payload[i])) {
+    throw new Error('OptiFrame perspective self-test failed.');
+  }
+
   return { payloadBytes: payload.length, capacityBytes: getOptiFrameCapacity() };
 }
