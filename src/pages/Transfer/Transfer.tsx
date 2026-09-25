@@ -11,7 +11,7 @@ type DetectorCtor = new (options?:{formats?:string[]}) => Detector;
 export function Transfer() {
   const [tab,setTab]=useState<'send'|'receive'>('send');
   const [file,setFile]=useState<File|null>(null);
-  const [frames,setFrames]=useState<string[]>([]);
+  const [plan,setPlan]=useState<Awaited<ReturnType<typeof createTransfer>>|null>(null);
   const [index,setIndex]=useState(0);
   const [qr,setQr]=useState('');
   const [error,setError]=useState('');
@@ -31,14 +31,27 @@ export function Transfer() {
   const playerRef=useRef<HTMLDivElement>(null);
   const [fullscreen,setFullscreen]=useState(false);
 
-  useEffect(()=>{ if(!frames.length)return; let cancelled=false; QRCode.toDataURL(frames[index],{width:900,margin:3,errorCorrectionLevel:'M'}).then((v: string)=>{if(!cancelled)setQr(v);}).catch(()=>setError('Unable to render transfer QR.')); return()=>{cancelled=true;}; },[frames,index]);
+  useEffect(()=>{
+    if(!plan){
+      setQr('');
+      return;
+    }
+
+    let cancelled=false;
+    void plan.getFrame(index+1)
+      .then(frame=>QRCode.toDataURL(frame,{width:900,margin:3,errorCorrectionLevel:'M'}))
+      .then((value:string)=>{if(!cancelled)setQr(value);})
+      .catch(()=>{if(!cancelled)setError('Unable to render transfer QR.');});
+
+    return()=>{cancelled=true;};
+  },[plan,index]);
   useEffect(()=>()=>{ stopReceive(); stopPlayback(); },[]);
   useEffect(()=>{ const onFullscreen=()=>setFullscreen(document.fullscreenElement===playerRef.current); document.addEventListener('fullscreenchange',onFullscreen); return()=>document.removeEventListener('fullscreenchange',onFullscreen); },[]);
   useEffect(()=>{
-    if(!playing || frames.length < 2) return;
-    playTimerRef.current = window.setInterval(()=>setIndex(i=>(i+1)%frames.length), intervalMs);
+    if(!playing || !plan || plan.total < 2) return;
+    playTimerRef.current = window.setInterval(()=>setIndex(i=>(i+1)%plan.total), intervalMs);
     return ()=>{ if(playTimerRef.current!==null) window.clearInterval(playTimerRef.current); playTimerRef.current=null; };
-  },[playing,frames.length,intervalMs]);
+  },[playing,plan,intervalMs]);
 
   async function scanLoop() {
     if(!receivingRef.current||!videoRef.current||!detectorRef.current)return;
@@ -128,7 +141,7 @@ export function Transfer() {
 
   async function enterFullscreen() { try { await playerRef.current?.requestFullscreen?.(); setFullscreen(true); } catch { setError('Fullscreen is not available on this browser.'); } }
   async function exitFullscreen() { try { if(document.fullscreenElement) await document.exitFullscreen(); } catch {} setFullscreen(false); }
-  async function choose(value?:File) { if(!value)return; setError(''); try {const t=await createTransfer(value);setFile(value);setFrames(t.frames);setIndex(0);} catch(e){setError(e instanceof Error?e.message:'Unable to prepare this file.');} }
+  async function choose(value?:File) { if(!value)return; setError(''); stopPlayback(); try {const t=await createTransfer(value);setFile(value);setPlan(t);setIndex(0);} catch(e){setPlan(null);setFile(null);setQr('');setError(e instanceof Error?e.message:'Unable to prepare this file.');} }
 
   return <section className="mx-auto max-w-6xl py-8 sm:py-12">
     <Link to="/" className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)]">Back home</Link>
@@ -139,8 +152,8 @@ export function Transfer() {
     </div>
     <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1"><button onClick={()=>{stopReceive();setTab('send')}} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab==='send'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}><FileUp size={15} className="mr-2 inline"/>Send</button><button onClick={()=>setTab('receive')} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab==='receive'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}><ScanLine size={15} className="mr-2 inline"/>Receive</button></div>
     {tab==='send'?<div className="mt-5 grid gap-5 lg:grid-cols-[.85fr_1fr]">
-      <div className="glass-panel rounded-[28px] p-5"><input ref={inputRef} type="file" className="sr-only" onChange={e=>{void choose(e.target.files?.[0]);e.currentTarget.value='';}}/><button onClick={()=>inputRef.current?.click()} className="w-full rounded-[24px] border border-dashed border-cyan-300/30 bg-cyan-300/[.05] p-8 text-center"><FileUp className="mx-auto text-cyan-300" size={30}/><p className="mt-3 font-bold">Choose any file</p><p className="mt-1 text-xs text-[var(--text-muted)]">Up to 100 MB · processed locally</p></button>{file&&<div className="mt-4 rounded-2xl bg-white/5 p-4"><p className="truncate font-bold">{file.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(file.size/1024/1024).toFixed(2)} MB · {frames.length} QR frames</p></div>}<div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-white/5 p-4"><ShieldCheck size={18} className="text-emerald-300"/><p className="mt-2 text-sm font-bold">Byte-accurate</p><p className="mt-1 text-xs text-[var(--text-muted)]">SHA-256 verifies the reconstructed file.</p></div><div className="rounded-2xl bg-white/5 p-4"><LockKeyhole size={18} className="text-cyan-300"/><p className="mt-2 text-sm font-bold">Local only</p><p className="mt-1 text-xs text-[var(--text-muted)]">No upload or server is involved.</p></div></div></div>
-      <div ref={playerRef} className="glass-panel rounded-[28px] p-5">{qr?<><div className="rounded-[28px] bg-white p-5"><img src={qr} alt="OR Transfer frame" className="mx-auto max-h-[78vh] w-full max-w-[900px] object-contain" style={{imageRendering:'pixelated'}}/></div><div className="mt-4 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold">Frame {index+1} / {frames.length}</p><div className="flex flex-wrap gap-2"><button disabled={!frames.length} onClick={()=>setIndex(i=>Math.max(0,i-1))} className="rounded-full bg-white/10 px-4 py-2 text-sm">Prev</button><button disabled={!frames.length} onClick={()=>setIndex(i=>Math.min(frames.length-1,i+1))} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">Next</button><button disabled={frames.length<2} onClick={()=>playing?stopPlayback():setPlaying(true)} className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">{playing?'Pause':'Play stream'}</button><button disabled={!frames.length} onClick={()=>fullscreen?void exitFullscreen():void enterFullscreen()} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">{fullscreen?'Exit full screen':'Full screen'}</button></div></div><div className="mt-3 flex items-center gap-3 text-xs text-[var(--text-muted)]"><span>Frame interval</span><select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5"><option value="350">Fast · 350ms</option><option value="500">500ms</option><option value="700">700ms</option><option value="1000">Recommended · 1 sec</option><option value="1500">1.5 sec</option></select></div><p className="mt-3 text-center text-xs leading-5 text-[var(--text-muted)]">Keep this screen bright and steady. The stream loops automatically so missed frames can be captured on the next pass.</p></>:<div className="grid min-h-[520px] place-items-center text-center text-[var(--text-muted)]"><Radio size={36} className="mx-auto text-cyan-300"/><p className="mt-3 font-bold text-[var(--text)]">Transfer QR will appear here</p><p className="mt-1 text-sm">Choose a file to begin.</p></div>}</div>
+      <div className="glass-panel rounded-[28px] p-5"><input ref={inputRef} type="file" className="sr-only" onChange={e=>{void choose(e.target.files?.[0]);e.currentTarget.value='';}}/><button onClick={()=>inputRef.current?.click()} className="w-full rounded-[24px] border border-dashed border-cyan-300/30 bg-cyan-300/[.05] p-8 text-center"><FileUp className="mx-auto text-cyan-300" size={30}/><p className="mt-3 font-bold">Choose any file</p><p className="mt-1 text-xs text-[var(--text-muted)]">Up to 100 MB · processed locally</p></button>{file&&<div className="mt-4 rounded-2xl bg-white/5 p-4"><p className="truncate font-bold">{file.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(file.size/1024/1024).toFixed(2)} MB · {plan?.total ?? 0} QR frames</p></div>}<div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-white/5 p-4"><ShieldCheck size={18} className="text-emerald-300"/><p className="mt-2 text-sm font-bold">Byte-accurate</p><p className="mt-1 text-xs text-[var(--text-muted)]">SHA-256 verifies the reconstructed file.</p></div><div className="rounded-2xl bg-white/5 p-4"><LockKeyhole size={18} className="text-cyan-300"/><p className="mt-2 text-sm font-bold">Local only</p><p className="mt-1 text-xs text-[var(--text-muted)]">No upload or server is involved.</p></div></div></div>
+      <div ref={playerRef} className="glass-panel rounded-[28px] p-5">{qr?<><div className="rounded-[28px] bg-white p-5"><img src={qr} alt="OR Transfer frame" className="mx-auto max-h-[78vh] w-full max-w-[900px] object-contain" style={{imageRendering:'pixelated'}}/></div><div className="mt-4 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold">Frame {index+1} / {plan?.total ?? 0}</p><div className="flex flex-wrap gap-2"><button disabled={!plan} onClick={()=>setIndex(i=>Math.max(0,i-1))} className="rounded-full bg-white/10 px-4 py-2 text-sm">Prev</button><button disabled={!plan} onClick={()=>setIndex(i=>Math.min((plan?.total ?? 1)-1,i+1))} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">Next</button><button disabled={!plan || plan.total<2} onClick={()=>playing?stopPlayback():setPlaying(true)} className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">{playing?'Pause':'Play stream'}</button><button disabled={!plan} onClick={()=>fullscreen?void exitFullscreen():void enterFullscreen()} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">{fullscreen?'Exit full screen':'Full screen'}</button></div></div><div className="mt-3 flex items-center gap-3 text-xs text-[var(--text-muted)]"><span>Frame interval</span><select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5"><option value="350">Fast · 350ms</option><option value="500">500ms</option><option value="700">700ms</option><option value="1000">Recommended · 1 sec</option><option value="1500">1.5 sec</option></select></div><p className="mt-3 text-center text-xs leading-5 text-[var(--text-muted)]">Keep this screen bright and steady. The stream loops automatically so missed frames can be captured on the next pass.</p></>:<div className="grid min-h-[520px] place-items-center text-center text-[var(--text-muted)]"><Radio size={36} className="mx-auto text-cyan-300"/><p className="mt-3 font-bold text-[var(--text)]">Transfer QR will appear here</p><p className="mt-1 text-sm">Choose a file to begin.</p></div>}</div>
     </div>:<div className="mt-5 glass-panel rounded-[28px] p-5">
       <div className="grid gap-5 lg:grid-cols-[1fr_.8fr]">
         <div className="overflow-hidden rounded-[24px] bg-black/20"><video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline/></div>
