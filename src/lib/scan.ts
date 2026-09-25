@@ -10,6 +10,7 @@ export type ScanKind =
   | 'isbn'
   | 'barcode'
   | 'image'
+  | 'or-transfer'
   | 'text';
 
 export type ScanAnalysis = {
@@ -40,6 +41,27 @@ export function analyzeScan(value: string, format = ''): ScanAnalysis {
   const normalizedFormat = format.toLowerCase();
 
   if (raw.startsWith('ORIMG1:data:image/')) return { kind: 'image', title: 'Image QR', subtitle: 'A photo is embedded in this QR code.', value: raw, meta: { Type: 'Compressed image', Storage: 'Inside QR code' } };
+
+  if (upper.startsWith('ORX1:')) {
+    const parts = raw.split('|');
+    const session = parts[0].slice(5);
+    const size = Number(parts[3]);
+    const total = Number(parts[6]);
+    const index = Number(parts[5]);
+    return {
+      kind: 'or-transfer',
+      title: 'OR Transfer frame',
+      subtitle: session ? 'Offline file-transfer frame' : 'Offline transfer frame',
+      value: raw,
+      actionLabel: 'Open OR Transfer',
+      actionUrl: '#/transfer',
+      meta: {
+        Session: session || 'Unknown',
+        ...(Number.isFinite(size) ? { Size: `${(size / 1024 / 1024).toFixed(2)} MB` } : {}),
+        ...(Number.isInteger(index) && Number.isInteger(total) ? { Frame: `${index} / ${total}` } : {}),
+      },
+    };
+  }
 
   if (upper.startsWith('WIFI:')) {
     const body = raw.slice(5);
