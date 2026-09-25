@@ -17,7 +17,7 @@ export function Settings() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `or-generator-library-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.download = `opticode-studio-library-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     setNotice('Library backup exported.');
@@ -28,7 +28,7 @@ export function Settings() {
       const result = importHistory(await file.text());
       setNotice(`Restored ${result.imported} new item${result.imported === 1 ? '' : 's'}.`);
     } catch {
-      setNotice('Backup could not be restored. Choose an OR-Generator JSON backup.');
+      setNotice('Backup could not be restored. Choose an OptiCode Studio JSON backup.');
     }
   }
 
