@@ -196,8 +196,8 @@ export async function addTransferFrame(frame:TransferFrame) {
       createdAt:Date.now(),
     };
 
-  if (!compatible && current) {
-    await clearSession(key);
+  if (current && !compatible) {
+    throw new Error('This frame conflicts with an existing transfer session. Reset that session before starting another transfer.');
   }
 
   if (!compatible) await putSession(session);
