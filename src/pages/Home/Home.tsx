@@ -4,9 +4,9 @@ import { motion } from 'framer-motion';
 import { GlassCard } from '../../components/ui/GlassCard';
 
 const features = [
-  { icon: Zap, title: 'Instant generation', text: 'Create QR codes live as you type.' },
-  { icon: ScanLine, title: 'Smart QR + barcode scan', text: 'Camera, image upload, multi-format decoding and local results.' },
-  { icon: ShieldCheck, title: 'Library + backup', text: 'Tag scans, favorite them and export your local library.' },
+  { icon: Zap, title: 'Fast QR creation', text: 'Create QR codes live from text, links and photos, with export controls.' },
+  { icon: ScanLine, title: 'QR + barcode scanning', text: 'Camera, gallery, multi-format decoding, flashlight and zoom in one scanner.' },
+  { icon: ShieldCheck, title: 'Private local workspace', text: 'History, analytics, backups and transfer tools stay on your device.' },
 ];
 
 export function Home() {
@@ -23,10 +23,10 @@ export function Home() {
             </div>
             <div className="space-y-5">
               <h1 className="max-w-3xl text-5xl font-black leading-[.98] tracking-[-.045em] text-[var(--text)] sm:text-7xl">
-                QR codes, <span className="text-gradient">beautifully simple.</span>
+                Every code. <span className="text-gradient">One studio.</span>
               </h1>
               <p className="max-w-xl text-base leading-7 text-[var(--text-muted)] sm:text-lg">
-                Generate, scan, organize and share QR codes and barcodes from one polished workspace. No account. No clutter.
+                Create QR codes, scan QR codes and barcodes, inspect product codes, move files optically, and manage everything from one polished workspace.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -35,6 +35,9 @@ export function Home() {
               </Link>
               <Link to="/scanner" className="glass-soft inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold text-[var(--text)] transition hover:bg-white/10">
                 <Camera size={16} /> Scan
+              </Link>
+              <Link to="/tools" className="glass-soft inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold text-[var(--text)] transition hover:bg-white/10">
+                <Sparkles size={16} /> All tools
               </Link>
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-[var(--text-muted)]">
@@ -51,7 +54,7 @@ export function Home() {
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[.2em] text-[var(--text-muted)]">Live preview</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--text)]">Your next QR</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--text)]">Your next code</p>
                   </div>
                   <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/8 text-cyan-300"><QrCode size={18} /></span>
                 </div>
