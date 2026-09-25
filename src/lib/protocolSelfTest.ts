@@ -6,6 +6,7 @@ import {
   parseMultiImageQr,
   reconstructMultiImage,
 } from './imageQr';
+import { analyzeScan } from './scan';
 import {
   addTransferFrame,
   clearTransfer,
@@ -197,6 +198,34 @@ async function multiImageRoundTrip() {
   return plan.total + ' frames · out-of-order delivery · original filename preserved · exact SHA-256';
 }
 
+async function scanFormatCompatibility() {
+  const cases = [
+    { input: 'https://example.com', kind: 'url', title: 'Website' },
+    { input: 'mailto:test@example.com', kind: 'email', title: 'Email address' },
+    { input: 'tel:+919999999999', kind: 'phone', title: 'Phone number' },
+    { input: 'WIFI:T:WPA;S:OR-Test;P:secret;;', kind: 'wifi', title: 'Wi-Fi network' },
+    { input: 'upi://pay?pa=test@upi&pn=Test', kind: 'upi', title: 'UPI payment' },
+    { input: 'BEGIN:VCARD\nFN:Test User\nTEL:+919999999999\nEND:VCARD', kind: 'vcard', title: 'Contact card' },
+    { input: 'GEO:23.0225,72.5714', kind: 'geo', title: 'Location' },
+    { input: 'BEGIN:VEVENT\nSUMMARY:Test event\nEND:VEVENT', kind: 'calendar', title: 'Calendar event' },
+    { input: '9780306406157', kind: 'isbn', title: 'ISBN' },
+    { input: '4006381333931', kind: 'barcode', title: 'Barcode' },
+    { input: 'ORIMG1:data:image/jpeg;base64,AAAA', kind: 'image', title: 'Image QR' },
+    { input: 'ORX1:test|application%2Foctet-stream|ZmlsZS5iaW4|2048|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|1|3|AAAA', kind: 'or-transfer', title: 'OR Transfer frame', actionUrl: '#/transfer' },
+  ] as const;
+
+  for (const test of cases) {
+    const analysis = analyzeScan(test.input);
+    assert(analysis.kind === test.kind, test.input + ': expected kind ' + test.kind + ', got ' + analysis.kind + '.');
+    assert(analysis.title === test.title, test.input + ': expected title ' + test.title + ', got ' + analysis.title + '.');
+    if ('actionUrl' in test && test.actionUrl) {
+      assert(analysis.actionUrl === test.actionUrl, 'OR Transfer action did not point to the Transfer page.');
+    }
+  }
+
+  return cases.length + ' format classifications verified locally';
+}
+
 async function multiImageMissingRecovery() {
   const original = makeBytes(4_200, 11);
   const file = new File([original], 'diagnostic-photo-missing.png', { type: 'image/png' });
@@ -228,5 +257,6 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
     runCase('Multi-QR Photo · missing-frame recovery', multiImageMissingRecovery),
+    runCase('Scanner · format compatibility', scanFormatCompatibility),
   ]);
 }
