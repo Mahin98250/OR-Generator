@@ -260,6 +260,7 @@ export function Transfer() {
         qrPoolRef.current=new QrDecodePool();
         const loop=async()=>{
           if(!receivingRef.current||!videoRef.current||!ctx||!qrPoolRef.current)return;
+          const started=performance.now();
           const video=videoRef.current,w=video.videoWidth,h=video.videoHeight;
           if(w&&h){
             canvas.width=w; canvas.height=h;
