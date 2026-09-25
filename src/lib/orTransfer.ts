@@ -1,3 +1,5 @@
+import { clearSession, countChunks, getChunkIndexes, getChunks, getSession, putChunk, putSession } from './sessionStore';
+
 export const OR_TRANSFER_PREFIX = 'ORX1:';
 export const OR_TRANSFER_CHUNK_CHARS = 1200;
 export const OR_TRANSFER_MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -32,42 +34,20 @@ function decodeName(name: string) {
   return decodeURIComponent(escape(atob(name)));
 }
 
-function storageKey(session: string) {
-  return `or-transfer-${session}`;
+function sessionKey(session: string) {
+  return `transfer:${session}`;
 }
 
-function readState(key: string) {
-  try {
-    return sessionStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeState(key: string, value: string) {
-  try {
-    sessionStorage.setItem(key, value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function removeState(key: string) {
-  try {
-    sessionStorage.removeItem(key);
-  } catch {
-    // Storage can be unavailable in private/restricted contexts.
-  }
-}
-
-type TransferState = {
+type TransferSession = {
+  key: string;
+  type: 'transfer';
+  id: string;
   mime: string;
   name: string;
   size: number;
   hash: string;
   total: number;
-  chunks: Record<string, string>;
+  createdAt: number;
 };
 
 export type TransferFrame = {
@@ -120,17 +100,7 @@ export function parseTransferFrame(value:string): TransferFrame | null {
   const parts=value.split('|');
   if (!isTransferFrame(value) || parts.length !== 8) return null;
 
-  const [
-    sessionRaw,
-    mimeRaw,
-    nameRaw,
-    sizeRaw,
-    hash,
-    indexRaw,
-    totalRaw,
-    data,
-  ]=parts;
-
+  const [sessionRaw,mimeRaw,nameRaw,sizeRaw,hash,indexRaw,totalRaw,data]=parts;
   const session=sessionRaw.slice(OR_TRANSFER_PREFIX.length);
   const index=Number(indexRaw);
   const total=Number(totalRaw);
@@ -140,8 +110,7 @@ export function parseTransferFrame(value:string): TransferFrame | null {
     !session ||
     !mimeRaw ||
     !nameRaw ||
-    !hashSafe(hash) ||
-    !data ||
+    !/^[a-f0-9]{64}$/i.test(hash) ||
     !Number.isInteger(index) ||
     !Number.isInteger(total) ||
     !Number.isInteger(size) ||
@@ -150,7 +119,8 @@ export function parseTransferFrame(value:string): TransferFrame | null {
     index > total ||
     total > MAX_TRANSFER_FRAMES ||
     size < 0 ||
-    data.length > OR_TRANSFER_CHUNK_CHARS
+    (data.length > OR_TRANSFER_CHUNK_CHARS) ||
+    (data.length === 0 && !(total === 1 && index === 1))
   ) return null;
 
   try {
@@ -169,113 +139,111 @@ export function parseTransferFrame(value:string): TransferFrame | null {
   }
 }
 
-function hashSafe(value: string) {
-  return /^[a-f0-9]{64}$/i.test(value);
-}
-export function getTransferMissingFrames(session:string) {
-  const raw=readState(storageKey(session));
-  if(!raw) return [];
+export async function getTransferMissingFrames(session:string) {
+  const key=sessionKey(session);
+  const stored=await getSession(key);
+  if (!stored || stored.type !== 'transfer') return [];
 
-  try {
-    const state=JSON.parse(raw) as TransferState;
-    if (!Number.isInteger(state.total) || state.total < 1 || state.total > MAX_TRANSFER_FRAMES) return [];
-
-    const missing:number[]=[];
-    for(let i=1;i<=state.total;i++) {
-      if(!state.chunks[String(i)]) missing.push(i);
-    }
-    return missing;
-  } catch {
-    return [];
+  const received=await getChunkIndexes(key);
+  const have=new Set(received);
+  const missing:number[]=[];
+  for(let i=1;i<=stored.total;i++) {
+    if(!have.has(i)) missing.push(i);
   }
+  return missing;
 }
 
-export function clearTransfer(session:string) {
-  removeState(storageKey(session));
+export async function clearTransfer(session:string) {
+  await clearSession(sessionKey(session));
 }
 
-export function addTransferFrame(frame:TransferFrame) {
-  const key=storageKey(frame.session);
-  let current: TransferState | null = null;
+export async function addTransferFrame(frame:TransferFrame) {
+  const key=sessionKey(frame.session);
+  const current=await getSession(key) as TransferSession | undefined;
 
-  try {
-    const raw=readState(key);
-    current=raw ? JSON.parse(raw) as TransferState : null;
-  } catch {
-    current=null;
-  }
-
-  const compatible = current &&
+  const compatible=current &&
+    current.type === 'transfer' &&
     current.hash===frame.hash &&
     current.total===frame.total &&
     current.size===frame.size &&
     current.mime===frame.mime &&
     current.name===frame.name;
 
-  const state: TransferState = compatible
+  const session:TransferSession = compatible
     ? current
     : {
+      key,
+      type:'transfer',
+      id:frame.session,
       mime:frame.mime,
       name:frame.name,
       size:frame.size,
       hash:frame.hash,
       total:frame.total,
-      chunks:{},
+      createdAt:Date.now(),
     };
 
-  const existing=state.chunks[String(frame.index)];
-  if (existing && existing !== frame.data) {
-    throw new Error('Conflicting transfer frame detected. Restart this transfer session.');
+  if (!compatible && current) {
+    await clearSession(key);
   }
 
-  const duplicate=Boolean(existing);
-  if (!duplicate) state.chunks[String(frame.index)]=frame.data;
+  if (!compatible) await putSession(session);
 
-  if (!writeState(key,JSON.stringify(state))) {
-    throw new Error('Browser storage is unavailable. Allow site storage and try again.');
+  let storedChunk;
+  try {
+    storedChunk=await putChunk(key,frame.index,frame.data);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'Unable to save the transfer frame.');
   }
 
-  const received=Object.keys(state.chunks).length;
-  const missing=getTransferMissingFrames(frame.session);
+  const received=await countChunks(key);
 
   return {
     ...frame,
     received,
-    complete:received===state.total,
-    duplicate,
-    missing,
+    complete:received===session.total,
+    duplicate:storedChunk.duplicate,
+    missingCount:Math.max(0,session.total-received),
   };
 }
 
 export async function reconstructTransfer(session:string) {
-  const key=storageKey(session);
-  const raw=readState(key);
-  if(!raw) return null;
+  const key=sessionKey(session);
+  const state=await getSession(key) as TransferSession | undefined;
+  if(!state || state.type !== 'transfer') return null;
 
-  let state: TransferState;
-  try {
-    state=JSON.parse(raw) as TransferState;
-  } catch {
-    throw new Error('The transfer session is corrupted. Restart the transfer.');
+  const chunks=await getChunks(key);
+  if(chunks.length!==state.total) return null;
+
+  chunks.sort((a,b)=>a.index-b.index);
+  for(let i=0;i<chunks.length;i++) {
+    if(chunks[i].index!==i+1) return null;
   }
 
-  const missing=getTransferMissingFrames(session);
-  if(missing.length) return null;
+  const bytes=new Uint8Array(state.size);
+  let offset=0;
 
-  const encoded=Array.from({length:state.total},(_,i)=>state.chunks[String(i+1)]).join('');
+  for(const chunk of chunks) {
+    let decoded:Uint8Array;
+    try {
+      decoded=fromBase64(chunk.data);
+    } catch {
+      throw new Error('The reconstructed file data is invalid. Rescan the missing frame(s).');
+    }
 
-  let bytes: Uint8Array;
-  try {
-    bytes=fromBase64(encoded);
-  } catch {
-    throw new Error('The reconstructed file data is invalid. Rescan the missing frame(s).');
+    if(offset+decoded.length>bytes.length) {
+      throw new Error('The reconstructed file is larger than expected. Restart the transfer.');
+    }
+
+    bytes.set(decoded,offset);
+    offset+=decoded.length;
   }
 
-  if(bytes.byteLength!==state.size || await sha256(bytes)!==state.hash) {
+  if(offset!==state.size || await sha256(bytes)!==state.hash) {
     throw new Error('Integrity verification failed. Rescan the missing frame(s).');
   }
 
-  removeState(key);
+  await clearSession(key);
 
   return {
     url:URL.createObjectURL(new Blob([bytes],{type:state.mime})),
