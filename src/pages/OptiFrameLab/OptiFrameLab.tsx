@@ -4,6 +4,7 @@ import { GlassCard } from '../../components/ui/GlassCard';
 import { GlassButton } from '../../components/ui/GlassButton';
 import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, OPTIFRAME_SIZE } from '../../lib/optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from '../../lib/optiframeStream';
+import { OptiFrameDecodePool } from '../../lib/optiframeDecodePool';
 
 type CameraStats = {
   attempts: number;
@@ -36,6 +37,7 @@ export function OptiFrameLab() {
   const loopRef = useRef<number | null>(null);
   const senderTimerRef = useRef<number | null>(null);
   const assemblerRef = useRef(new OptiFrameAssembler());
+  const decodePoolRef = useRef(new OptiFrameDecodePool());
   const seenSequenceRef = useRef(new Set<number>());
 
   const streamPayload = useMemo(() => {
@@ -46,6 +48,7 @@ export function OptiFrameLab() {
   useEffect(() => {
     return () => {
       stopCamera();
+      decodePoolRef.current.terminate();
     };
   }, []);
 
@@ -135,8 +138,20 @@ export function OptiFrameLab() {
     const video = videoRef.current;
     if (!video || video.readyState < 2 || !streamRef.current) return;
 
+    const capture = document.createElement('canvas');
+    const maxDimension = 720;
+    const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+    capture.width = Math.max(1, Math.round(video.videoWidth * scale));
+    capture.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const context = capture.getContext('2d', { willReadFrequently: true });
+    if (!context) return;
+    context.drawImage(video, 0, 0, capture.width, capture.height);
+    const image = context.getImageData(0, 0, capture.width, capture.height);
+
     const started = performance.now();
-    const result = decodeOptiFramePerspective(video);
+    const workerJob = decodePoolRef.current.decode(image.data.buffer.slice(0), image.width, image.height);
+    const workerResult = workerJob ? await workerJob : null;
+    const result = workerResult ?? decodeOptiFramePerspective(image);
     const elapsed = performance.now() - started;
 
     setCameraStats(prev => {
@@ -177,7 +192,7 @@ export function OptiFrameLab() {
       complete: assembly.complete,
     });
 
-    setStatus(`Live frame ${frame.sequence + 1}/${frame.total} · ${Math.round(result.diagnostics.confidence * 100)}% anchor confidence · ${result.diagnostics.decodeMs.toFixed(0)} ms decode`);
+    setStatus(`Live frame ${frame.sequence + 1}/${frame.total} · ${Math.round(result.diagnostics.confidence * 100)}% anchor confidence · ${result.diagnostics.decodeMs.toFixed(0)} ms decode${workerResult ? ' · worker' : ' · local'}`);
 
     if (assembly.complete && assembly.payload) {
       setCameraDecoded(utf8ToText(assembly.payload));
