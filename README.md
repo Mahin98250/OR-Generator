@@ -17,6 +17,7 @@ OptiCode Studio is an all-in-one, privacy-first QR, barcode and optical file-tra
 - Experimental OptiFrame v1 codec: 16-level grayscale optical symbols with finder patterns and CRC integrity checks
 - 10-second physical optical benchmark for measured receiver performance
 - Browser-side protocol diagnostics and recovery stress tests
+- Phase 3 OptiFrame receiver hardening: worker-backed perspective decoding with adaptive camera scan cadence
 - Dark, light and system themes with contrast-aware light-mode styling
 - Installable PWA with GitHub Pages deployment
 
