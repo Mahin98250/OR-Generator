@@ -121,6 +121,7 @@ export function QRScanner() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     detectorRef.current = null;
+    recentMultiFrameRef.current.clear();
 
     setScanning(false);
     setTorch(false);
@@ -150,6 +151,14 @@ export function QRScanner() {
     }
   }
 
+  function isFormatAllowed(detectedFormat: string, nextMode = mode) {
+    const normalized = detectedFormat.toLowerCase().replace(/[_-]/g, ' ');
+    const isQr = normalized.includes('qr');
+    if (nextMode === 'qr') return isQr;
+    if (nextMode === 'barcode') return !isQr;
+    return true;
+  }
+
   async function startZXing(video: HTMLVideoElement) {
     try {
       const reader = new BrowserMultiFormatReader();
@@ -159,12 +168,12 @@ export function QRScanner() {
         if (decoded?.getText()) {
           const value = decoded.getText().trim();
           const detectedFormat = normalizeFormat(decoded.getBarcodeFormat()?.toString());
-          if (isMultiImageQr(value)) {
-            void handleDecoded(value, detectedFormat);
-            return;
-          }
+          if (!isFormatAllowed(detectedFormat)) return;
+
           void handleDecoded(value, detectedFormat);
-          zxingControlsRef.current?.stop();
+          if (!isMultiImageQr(value)) {
+            zxingControlsRef.current?.stop();
+          }
           return;
         }
         void decodeError;
@@ -409,8 +418,12 @@ export function QRScanner() {
             const reader = new BrowserMultiFormatReader();
             const decoded = await reader.decodeFromImageElement(image);
             if (decoded?.getText()) {
+              const detectedFormat = normalizeFormat(decoded.getBarcodeFormat()?.toString());
+              if (!isFormatAllowed(detectedFormat)) {
+                throw new Error('Barcode format does not match the selected scan mode.');
+              }
               URL.revokeObjectURL(source);
-              handleDecoded(decoded.getText(), normalizeFormat(decoded.getBarcodeFormat()?.toString()));
+              handleDecoded(decoded.getText(), detectedFormat);
               return;
             }
           } catch {
