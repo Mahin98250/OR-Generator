@@ -4,9 +4,11 @@ export type OptiFrameWorkerResult = {
   frame: OptiFrame;
   diagnostics: { confidence: number; sampleWidth: number; sampleHeight: number; decodeMs: number };
   workerMs: number;
+  workerIndex: number;
 };
 
 type Pending = {
+  workerIndex: number;
   resolve: (result: OptiFrameWorkerResult | null) => void;
   reject: (error: Error) => void;
   startedAt: number;
@@ -20,70 +22,122 @@ type WorkerResponse = {
   error?: string;
 };
 
+type PoolWorker = {
+  worker: Worker;
+  busy: boolean;
+  index: number;
+};
+
 export class OptiFrameDecodePool {
-  private readonly worker: Worker | null;
+  private readonly workers: PoolWorker[] = [];
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
 
-  constructor(enabled = typeof Worker !== 'undefined') {
-    if (!enabled) {
-      this.worker = null;
-      return;
+  constructor(
+    size = Math.min(4, Math.max(1, (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 2 : 2) - 1)),
+    enabled = typeof Worker !== 'undefined',
+  ) {
+    if (!enabled) return;
+
+    const count = Math.max(1, Math.min(4, Math.floor(size)));
+    for (let index = 0; index < count; index += 1) {
+      try {
+        const worker = new Worker(
+          new URL('../workers/optiframeDecoder.worker.ts', import.meta.url),
+          { type: 'module' },
+        );
+        const poolWorker: PoolWorker = { worker, busy: false, index };
+
+        worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+          const pending = this.pending.get(event.data.id);
+          if (!pending) return;
+
+          this.pending.delete(event.data.id);
+          const slot = this.workers[pending.workerIndex];
+          if (slot) slot.busy = false;
+
+          if (!event.data.ok || !event.data.frame || !event.data.diagnostics) {
+            pending.resolve(null);
+            return;
+          }
+
+          pending.resolve({
+            frame: event.data.frame,
+            diagnostics: {
+              confidence: event.data.diagnostics.confidence,
+              sampleWidth: event.data.diagnostics.sampleWidth,
+              sampleHeight: event.data.diagnostics.sampleHeight,
+              decodeMs: event.data.diagnostics.decodeMs,
+            },
+            workerMs: performance.now() - pending.startedAt,
+            workerIndex: pending.workerIndex,
+          });
+        };
+
+        worker.onerror = () => {
+          for (const [id, pending] of this.pending) {
+            if (pending.workerIndex !== index) continue;
+            this.pending.delete(id);
+            pending.reject(new Error('OptiFrame decoder worker failed.'));
+          }
+          poolWorker.busy = false;
+        };
+
+        this.workers.push(poolWorker);
+      } catch {
+        // Continue with the workers that the browser allowed us to create.
+      }
     }
+  }
 
-    const worker = new Worker(new URL('../workers/optiframeDecoder.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-      const pending = this.pending.get(event.data.id);
-      if (!pending) return;
-      this.pending.delete(event.data.id);
+  get capacity() {
+    return this.workers.length;
+  }
 
-      if (!event.data.ok || !event.data.frame || !event.data.diagnostics) {
-        pending.resolve(null);
-        return;
-      }
-
-      pending.resolve({
-        frame: event.data.frame,
-        diagnostics: {
-          confidence: event.data.diagnostics.confidence,
-          sampleWidth: event.data.diagnostics.sampleWidth,
-          sampleHeight: event.data.diagnostics.sampleHeight,
-          decodeMs: event.data.diagnostics.decodeMs,
-        },
-        workerMs: performance.now() - pending.startedAt,
-      });
-    };
-
-    worker.onerror = () => {
-      for (const pending of this.pending.values()) {
-        pending.reject(new Error('OptiFrame decoder worker failed.'));
-      }
-      this.pending.clear();
-    };
-
-    this.worker = worker;
+  get busyCount() {
+    return this.workers.filter(worker => worker.busy).length;
   }
 
   get available() {
-    return this.worker !== null && this.pending.size === 0;
+    return this.workers.some(worker => !worker.busy);
   }
 
-  decode(buffer: ArrayBuffer, width: number, height: number): Promise<OptiFrameWorkerResult | null> | null {
-    if (!this.worker || this.pending.size > 0) return null;
+  decode(
+    buffer: ArrayBuffer,
+    width: number,
+    height: number,
+  ): Promise<OptiFrameWorkerResult | null> | null {
+    const slot = this.workers.find(worker => !worker.busy);
+    if (!slot) return null;
 
     const id = this.nextId++;
     const startedAt = performance.now();
+    slot.busy = true;
+
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, startedAt });
-      this.worker!.postMessage({ id, width, height, buffer }, [buffer]);
+      this.pending.set(id, {
+        workerIndex: slot.index,
+        resolve,
+        reject,
+        startedAt,
+      });
+
+      try {
+        slot.worker.postMessage({ id, width, height, buffer }, [buffer]);
+      } catch (error) {
+        this.pending.delete(id);
+        slot.busy = false;
+        reject(error instanceof Error ? error : new Error('Unable to dispatch OptiFrame decode.'));
+      }
     });
   }
 
   terminate() {
-    this.worker?.terminate();
+    for (const slot of this.workers) slot.worker.terminate();
     for (const pending of this.pending.values()) {
       pending.reject(new Error('OptiFrame decoder pool terminated.'));
     }
     this.pending.clear();
+    this.workers.length = 0;
   }
 }
