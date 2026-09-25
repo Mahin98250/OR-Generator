@@ -3,7 +3,7 @@ import { Download, FileUp, LockKeyhole, Radio, ScanLine, ShieldCheck, WifiOff } 
 import QRCode from 'qrcode';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { Link } from 'react-router-dom';
-import { addTransferFrame, createTransfer, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
+import { addTransferFrame, clearTransfer, createTransfer, getTransferMissingFrames, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
 type DetectorCtor = new (options?:{formats?:string[]}) => Detector;
@@ -17,8 +17,8 @@ export function Transfer() {
   const [error,setError]=useState('');
   const [receiving,setReceiving]=useState(false);
   const [playing,setPlaying]=useState(false);
-  const [intervalMs,setIntervalMs]=useState(700);
-  const [progress,setProgress]=useState<{session:string;received:number;total:number;name:string}|null>(null);
+  const [intervalMs,setIntervalMs]=useState(1000);
+  const [progress,setProgress]=useState<{session:string;received:number;total:number;name:string;missing:number[];duplicates:number}|null>(null);
   const [result,setResult]=useState<{url:string;name:string;size:number}|null>(null);
   const inputRef=useRef<HTMLInputElement>(null);
   const videoRef=useRef<HTMLVideoElement>(null);
@@ -47,10 +47,21 @@ export function Transfer() {
         const value=item.rawValue||''; if(!isTransferFrame(value))continue;
         const frame=parseTransferFrame(value); if(!frame)continue;
         const added=addTransferFrame(frame);
-        setProgress({session:added.session,received:added.received,total:added.total,name:added.name});
+        setProgress(prev => ({
+          session:added.session,
+          received:added.received,
+          total:added.total,
+          name:added.name,
+          missing:getTransferMissingFrames(added.session),
+          duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0),
+        }));
         if(added.complete) {
-          const rebuilt=await reconstructTransfer(added.session);
-          if(rebuilt){setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});stopReceive();return;}
+          try {
+            const rebuilt=await reconstructTransfer(added.session);
+            if(rebuilt){setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});setProgress(null);stopReceive();return;}
+          } catch(e) {
+            setError(e instanceof Error?e.message:'Transfer verification failed.');
+          }
         }
       }
     } catch {}
@@ -70,18 +81,37 @@ export function Transfer() {
       } else {
         const reader=new BrowserMultiFormatReader();
         zxingRef.current=reader;
-        reader.decodeFromVideoDevice(undefined, videoRef.current ?? undefined, async (result) => {
+        const controls=await reader.decodeFromVideoDevice(undefined, videoRef.current ?? undefined, async (result) => {
           const value=result?.getText?.() || '';
           if(!value || !isTransferFrame(value)) return;
           const frame=parseTransferFrame(value); if(!frame) return;
-          const added=addTransferFrame(frame);
-          setProgress({session:added.session,received:added.received,total:added.total,name:added.name});
-          if(added.complete){ try { const rebuilt=await reconstructTransfer(added.session); if(rebuilt){setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});stopReceive();} } catch(e){setError(e instanceof Error?e.message:'Transfer verification failed.');} }
+          try {
+            const added=addTransferFrame(frame);
+            setProgress(prev => ({
+              session:added.session,
+              received:added.received,
+              total:added.total,
+              name:added.name,
+              missing:added.missing,
+              duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0),
+            }));
+            if(added.complete){
+              const rebuilt=await reconstructTransfer(added.session);
+              if(rebuilt){setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});setProgress(null);stopReceive();}
+            }
+          } catch(e) {
+            setError(e instanceof Error?e.message:'Transfer verification failed.');
+          }
         });
+        if (receivingRef.current) {
+          zxingControlsRef.current = controls;
+        } else {
+          controls.stop();
+        }
       }
     } catch(e) { setError(e instanceof Error?e.message:'Camera permission was denied.'); setReceiving(false); receivingRef.current=false; }
   }
-  function stopReceive() { receivingRef.current=false; detectorRef.current=null; zxingRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false); }
+  function stopReceive() { receivingRef.current=false; detectorRef.current=null; zxingControlsRef.current?.stop(); zxingControlsRef.current=null; zxingRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false); }
   function stopPlayback() { setPlaying(false); if(playTimerRef.current!==null){window.clearInterval(playTimerRef.current);playTimerRef.current=null;} }
 
   async function enterFullscreen() { try { await playerRef.current?.requestFullscreen?.(); setFullscreen(true); } catch { setError('Fullscreen is not available on this browser.'); } }
@@ -99,7 +129,27 @@ export function Transfer() {
     {tab==='send'?<div className="mt-5 grid gap-5 lg:grid-cols-[.85fr_1fr]">
       <div className="glass-panel rounded-[28px] p-5"><input ref={inputRef} type="file" className="sr-only" onChange={e=>{void choose(e.target.files?.[0]);e.currentTarget.value='';}}/><button onClick={()=>inputRef.current?.click()} className="w-full rounded-[24px] border border-dashed border-cyan-300/30 bg-cyan-300/[.05] p-8 text-center"><FileUp className="mx-auto text-cyan-300" size={30}/><p className="mt-3 font-bold">Choose any file</p><p className="mt-1 text-xs text-[var(--text-muted)]">Up to 100 MB · processed locally</p></button>{file&&<div className="mt-4 rounded-2xl bg-white/5 p-4"><p className="truncate font-bold">{file.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(file.size/1024/1024).toFixed(2)} MB · {frames.length} QR frames</p></div>}<div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-white/5 p-4"><ShieldCheck size={18} className="text-emerald-300"/><p className="mt-2 text-sm font-bold">Byte-accurate</p><p className="mt-1 text-xs text-[var(--text-muted)]">SHA-256 verifies the reconstructed file.</p></div><div className="rounded-2xl bg-white/5 p-4"><LockKeyhole size={18} className="text-cyan-300"/><p className="mt-2 text-sm font-bold">Local only</p><p className="mt-1 text-xs text-[var(--text-muted)]">No upload or server is involved.</p></div></div></div>
       <div ref={playerRef} className="glass-panel rounded-[28px] p-5">{qr?<><div className="rounded-[28px] bg-white p-5"><img src={qr} alt="OR Transfer frame" className="mx-auto max-h-[78vh] w-full max-w-[900px] object-contain" style={{imageRendering:'pixelated'}}/></div><div className="mt-4 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold">Frame {index+1} / {frames.length}</p><div className="flex flex-wrap gap-2"><button disabled={!frames.length} onClick={()=>setIndex(i=>Math.max(0,i-1))} className="rounded-full bg-white/10 px-4 py-2 text-sm">Prev</button><button disabled={!frames.length} onClick={()=>setIndex(i=>Math.min(frames.length-1,i+1))} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">Next</button><button disabled={frames.length<2} onClick={()=>playing?stopPlayback():setPlaying(true)} className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">{playing?'Pause':'Play stream'}</button><button disabled={!frames.length} onClick={()=>fullscreen?void exitFullscreen():void enterFullscreen()} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">{fullscreen?'Exit full screen':'Full screen'}</button></div></div><div className="mt-3 flex items-center gap-3 text-xs text-[var(--text-muted)]"><span>Frame interval</span><select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5"><option value="350">Fast · 350ms</option><option value="500">500ms</option><option value="700">700ms</option><option value="1000">Recommended · 1 sec</option><option value="1500">1.5 sec</option></select></div><p className="mt-3 text-center text-xs leading-5 text-[var(--text-muted)]">Keep this screen bright and steady. The stream loops automatically so missed frames can be captured on the next pass.</p></>:<div className="grid min-h-[520px] place-items-center text-center text-[var(--text-muted)]"><Radio size={36} className="mx-auto text-cyan-300"/><p className="mt-3 font-bold text-[var(--text)]">Transfer QR will appear here</p><p className="mt-1 text-sm">Choose a file to begin.</p></div>}</div>
-    </div>:<div className="mt-5 glass-panel rounded-[28px] p-5"><div className="grid gap-5 lg:grid-cols-[1fr_.8fr]"><div className="overflow-hidden rounded-[24px] bg-black/20"><video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline/></div><div><button onClick={()=>receiving?stopReceive():void startReceive()} className="rounded-full bg-white px-5 py-3 text-sm font-bold text-slate-950">{receiving?'Stop camera':'Start receiving'}</button>{progress&&<div className="mt-5"><p className="truncate text-sm font-bold">{progress.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{progress.received} / {progress.total} frames</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300" style={{width:`${Math.round(progress.received/progress.total*100)}%`}}/></div></div>}{result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><ShieldCheck className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}{error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}</div></div></div>}
+    </div>:<div className="mt-5 glass-panel rounded-[28px] p-5">
+      <div className="grid gap-5 lg:grid-cols-[1fr_.8fr]">
+        <div className="overflow-hidden rounded-[24px] bg-black/20"><video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline/></div>
+        <div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={()=>receiving?stopReceive():void startReceive()} className="rounded-full bg-white px-5 py-3 text-sm font-bold text-slate-950">{receiving?'Stop camera':'Start receiving'}</button>
+            {progress&&<button onClick={()=>{clearTransfer(progress.session);setProgress(null);setError('');}} className="rounded-full bg-white/10 px-4 py-3 text-sm font-bold text-[var(--text)]">Reset session</button>}
+          </div>
+          {progress&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4">
+            <p className="truncate text-sm font-bold">{progress.name}</p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">{progress.received} / {progress.total} unique frames · {progress.duplicates} duplicate reads</p>
+            <div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.round(progress.received/progress.total*100)}%`}}/></div>
+            {progress.missing.length>0&&<div className="mt-3 rounded-xl bg-white/5 p-3"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-cyan-300">Recovery status</p><p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{progress.missing.length} frame{progress.missing.length===1?'':'s'} still missing: {progress.missing.slice(0,24).join(', ')}{progress.missing.length>24?` +${progress.missing.length-24} more`:''}. Keep the sender looping and keep scanning.</p></div>}
+            {progress.missing.length===0&&<p className="mt-3 text-xs leading-5 text-emerald-300">All frames received. Verifying the original file…</p>}
+          </div>}
+          {result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><ShieldCheck className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}
+          {error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}
+          {!progress&&!result&&!error&&<p className="mt-5 text-sm leading-6 text-[var(--text-muted)]">Start the receiver, then point this camera at the sender’s looping OR Transfer QR stream. Frames may arrive out of order and duplicates are ignored.</p>}
+        </div>
+      </div>
+    </div>
     <div className="mt-5 grid gap-3 md:grid-cols-3">{[['01','Split','Original bytes are split into QR-safe frames.'],['02','Scan','The receiver collects frames automatically.'],['03','Verify','SHA-256 confirms the exact original file.']].map(([n,t,d])=><div key={n} className="glass-panel rounded-[24px] p-5"><span className="text-xs font-black text-cyan-300">{n}</span><h2 className="mt-2 font-bold">{t}</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{d}</p></div>)}</div>
   </section>;
 }
