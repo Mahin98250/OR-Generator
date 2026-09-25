@@ -36,7 +36,7 @@ export function OptiFrameLab() {
   const [cameraError, setCameraError] = useState('');
   const [cameraDecoded, setCameraDecoded] = useState('');
   const [receiver, setReceiver] = useState({ total: 0, received: 0, bytes: 0, missing: [] as number[], complete: false });
-  const [cameraStats, setCameraStats] = useState<CameraStats>({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, startedAt: null });
+  const [cameraStats, setCameraStats] = useState<CameraStats>({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0, cameraWidth: 0, cameraHeight: 0, startedAt: null });
   const [streamPlaying, setStreamPlaying] = useState(false);
   const [streamIndex, setStreamIndex] = useState(0);
   const [laneCount, setLaneCount] = useState<OptiLaneCount>(1);
@@ -461,10 +461,10 @@ export function OptiFrameLab() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          width: { min: 960, ideal: 1920, max: 1920 },
-          height: { min: 540, ideal: 1080, max: 1080 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           aspectRatio: { ideal: 16 / 9 },
-          frameRate: { ideal: 30, max: 30 },
+          frameRate: { ideal: 30 },
         },
         audio: false,
       });
@@ -487,7 +487,7 @@ export function OptiFrameLab() {
         await decodeCameraFrame();
         const processingMs = performance.now() - started;
         // Keep capture responsive without forcing a fixed cadence onto slower
-        // devices. The sender remains at the experimental 300 ms cadence.
+        // devices. The sender cadence is independently configurable.
         const nextDelay = Math.max(140, Math.min(500, Math.round(processingMs * 1.35)));
         loopRef.current = window.setTimeout(() => void tick(), nextDelay);
       };
@@ -580,7 +580,7 @@ export function OptiFrameLab() {
             <button onClick={() => void (cameraOn ? stopCamera() : startCamera())} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950">{cameraOn ? <CameraOff size={14}/> : <Camera size={14}/>} {cameraOn ? 'Stop camera' : 'Start camera'}</button>
           </div>
           <div className="mt-4 overflow-hidden rounded-[26px] bg-black">
-            <div className="relative aspect-[4/3]">
+            <div className="relative min-h-[460px] aspect-video sm:min-h-[560px] lg:min-h-[620px]">
               <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
               {!cameraOn && <div className="absolute inset-0 grid place-items-center bg-black/55"><div className="text-center"><ScanLine size={28} className="mx-auto text-white/70"/><p className="mt-3 text-sm font-bold text-white">Point the camera at an OptiFrame</p><p className="mt-1 text-xs text-white/50">Keep all four finder anchors visible.</p></div></div>}
               {cameraOn && <div className="pointer-events-none absolute inset-[5%] rounded-[28px] border-2 border-cyan-300/70 shadow-[0_0_0_999px_rgba(0,0,0,.16),0_0_32px_rgba(34,211,238,.2)]"><div className="absolute inset-4 border border-white/15"/></div>}
