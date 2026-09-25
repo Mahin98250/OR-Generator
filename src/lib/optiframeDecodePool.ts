@@ -16,7 +16,7 @@ type WorkerResponse = {
   id: number;
   ok: boolean;
   frame?: OptiFrame;
-  diagnostics?: Omit<OptiFramePerspectiveDiagnostics, 'anchors'>;
+  diagnostics?: { confidence: number; sampleWidth: number; sampleHeight: number; decodeMs: number };
   error?: string;
 };
 
