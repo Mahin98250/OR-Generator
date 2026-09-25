@@ -14,7 +14,7 @@ export type FountainPlan = {
   blocks: number;
   blockBytes: number;
   recommended: number;
-  getDroplet: (lane?: number) => Promise<string>;
+  getDroplet: (lane?: number, sequence?: number) => Promise<string>;
 };
 
 export type FountainDroplet = {
@@ -106,10 +106,11 @@ export async function createFountainTransfer(file: File): Promise<FountainPlan> 
   return {
     session, hash, name: file.name, mime: file.type || 'application/octet-stream',
     size: file.size, blocks, blockBytes: FOUNTAIN_BLOCK_BYTES, recommended,
-    getDroplet: async (lane = 0) => {
+    getDroplet: async (lane = 0, sequence = 0) => {
       const systematic = lane < 2;
-      const target = (Math.floor(Math.random() * blocks)) >>> 0;
-      const seed = systematic ? ((0x80000000 | target) >>> 0) : ((Math.floor(Math.random() * 0x7fffffff) ^ (lane * 0x45d9f3b)) >>> 0);
+      const systematicOrdinal = sequence * 2 + lane;
+      const target = systematic ? (systematicOrdinal % blocks) : (Math.floor(Math.random() * blocks) >>> 0);
+      const seed = systematic ? ((0x80000000 | target) >>> 0) : ((Math.floor(Math.random() * 0x7fffffff) ^ (sequence * 0x45d9f3b) ^ (lane * 0x9e3779b9)) >>> 0);
       const degree = systematic ? 1 : degreeFor(seed, blocks);
       const indexes = systematic ? [target] : indexesFor(seed, blocks, degree);
       const payload = new Uint8Array(FOUNTAIN_BLOCK_BYTES);
