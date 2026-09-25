@@ -1,8 +1,8 @@
-import type { OptiFrame, OptiFramePerspectiveDiagnostics } from './optiframe';
+import type { OptiFrame } from './optiframe';
 
 export type OptiFrameWorkerResult = {
   frame: OptiFrame;
-  diagnostics: OptiFramePerspectiveDiagnostics;
+  diagnostics: { confidence: number; sampleWidth: number; sampleHeight: number; decodeMs: number };
   workerMs: number;
 };
 
@@ -45,7 +45,6 @@ export class OptiFrameDecodePool {
       pending.resolve({
         frame: event.data.frame,
         diagnostics: {
-          anchors: [],
           confidence: event.data.diagnostics.confidence,
           sampleWidth: event.data.diagnostics.sampleWidth,
           sampleHeight: event.data.diagnostics.sampleHeight,
