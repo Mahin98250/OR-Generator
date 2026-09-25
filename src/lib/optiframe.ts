@@ -161,7 +161,7 @@ function toImageData(source: CanvasImageSource | ImageData) {
   const sourceHeight = source instanceof HTMLVideoElement ? source.videoHeight : (typeof dimensions.height === 'number' ? dimensions.height : dimensions.displayHeight ?? 0);
   if (!sourceWidth || !sourceHeight) return null;
 
-  const maxDimension = 720;
+  // Preserve the high-resolution camera sample; finder detection needs the real module scale.\n  const maxDimension = 1440;
   const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
   const width = Math.max(1, Math.round(sourceWidth * scale));
   const height = Math.max(1, Math.round(sourceHeight * scale));
@@ -287,10 +287,14 @@ function searchFinder(image: ImageData, corner: Corner) {
   const width = image.width;
   const height = image.height;
   const minDim = Math.min(width, height);
-  const step = Math.max(5, Math.round(minDim / 110));
-  const minScale = Math.max(1.4, minDim / 320);
-  const maxScale = Math.min(18, minDim / 12);
-  const scaleStep = Math.max(1.2, minDim / 180);
+  const step = Math.max(4, Math.round(minDim / 110));
+  // The finder is 9 protocol modules wide. The previous scale sweep jumped
+  // over common physical sizes (especially the 3 px/module 384 px lane),
+  // causing valid finders to be missed before refinement.
+  const expectedScale = minDim / OPTIFRAME_SIZE;
+  const minScale = Math.max(1.25, expectedScale * 0.45);
+  const maxScale = Math.min(18, Math.max(minScale + 2, expectedScale * 2.2));
+  const scaleStep = 1;
 
   const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.45);
   const xEnd = corner.includes('l') ? Math.floor(width * 0.58) : width;
@@ -318,7 +322,7 @@ function searchFinder(image: ImageData, corner: Corner) {
   const minS = Math.max(minScale, best.scale - scaleStep * 1.5);
   const maxS = Math.min(maxScale, best.scale + scaleStep * 1.5);
 
-  for (let scale = minS; scale <= maxS; scale += Math.max(0.7, scaleStep / 2)) {
+  for (let scale = minS; scale <= maxS; scale += 0.5) {
     for (let y = minY; y <= maxY; y += fineStep) {
       for (let x = minX; x <= maxX; x += fineStep) {
         const score = finderScore(image, x, y, scale);
