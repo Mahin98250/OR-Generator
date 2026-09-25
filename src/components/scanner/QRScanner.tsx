@@ -247,10 +247,9 @@ export function QRScanner() {
     try {
       if (video.readyState >= 2) {
         const detected = await detectorRef.current.detect(video);
-        const hit = detected[0];
-        if (hit?.rawValue) {
-          handleDecoded(hit.rawValue, hit.format);
-          return;
+        if (detected.length) {
+          await handleBatchDecoded(detected);
+          if (detected.some((hit) => hit.rawValue && isMultiImageQr(hit.rawValue.trim()))) return;
         }
       }
     } catch {
@@ -361,9 +360,9 @@ export function QRScanner() {
               if (requested.length) {
                 const detector = new Constructor({ formats: requested });
                 const detected = await detector.detect(image);
-                if (detected[0]?.rawValue) {
+                if (detected.length) {
                   URL.revokeObjectURL(source);
-                  handleDecoded(detected[0].rawValue, detected[0].format);
+                  await handleBatchDecoded(detected);
                   return;
                 }
               }
