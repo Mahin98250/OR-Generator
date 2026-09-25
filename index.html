@@ -7,18 +7,18 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="manifest" href="/OR-Generator/manifest.webmanifest" />
-    <link rel="icon" href="/OR-Generator/icon-192.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/OR-Generator/icon-192.svg" />
+    <link rel="manifest" href="/OptiCode-Studio/manifest.webmanifest" />
+    <link rel="icon" href="/OptiCode-Studio/icon-192.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/OptiCode-Studio/icon-192.svg" />
     <meta name="description" content="OptiCode Studio is an all-in-one offline-first QR, barcode and optical file-transfer workspace." />
-    <link rel="icon" href="/OR-Generator/favicon.svg" />
+    <link rel="icon" href="/OptiCode-Studio/favicon.svg" />
     <title>OptiCode Studio — QR · Barcode · Optical Transfer</title>
   </head>
   <body>
     <script>
       // Recover users from stale pre-v2 PWA caches without requiring manual browser settings.
       (() => {
-        const RESET_KEY = 'opticode-studio-cache-reset-v3';
+        const RESET_KEY = 'opticode-studio-cache-reset-v4';
         if ('serviceWorker' in navigator && navigator.serviceWorker.controller && localStorage.getItem(RESET_KEY) !== '1') {
           localStorage.setItem(RESET_KEY, '1');
           navigator.serviceWorker.getRegistrations().then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
