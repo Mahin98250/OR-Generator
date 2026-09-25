@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Activity, CheckCircle2, Download, FileUp, Gauge, LockKeyhole, Radio, ScanLine, ShieldCheck, TimerReset, WifiOff, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QrDecodePool } from '../../lib/qrDecodePool';
-import { createBenchmarkStart, finishBenchmark, type OpticalBenchmark } from '../../lib/opticalBenchmark';
+import { createBenchmarkStart, finishBenchmark, type BenchmarkSample, type OpticalBenchmark } from '../../lib/opticalBenchmark';
 import { OR_TRANSFER_GRID_SIZE, addTransferFrame, createTransfer, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
 import { drawQrGrid, drawQrMatricesGrid } from '../../lib/qrCanvas';
 import { QrEncodePool, type QrEncodeResult } from '../../lib/qrEncodePool';
@@ -78,6 +78,7 @@ export function Transfer() {
   const benchmarkCodesRef=useRef(0);
   const benchmarkUniqueRef=useRef(new Set<string>());
   const benchmarkDecodeSamplesRef=useRef<number[]>([]);
+  const benchmarkSamplesRef=useRef<BenchmarkSample[]>([]);
   const benchmarkTimerRef=useRef<number|null>(null);
 
   useEffect(()=>{
@@ -282,10 +283,14 @@ export function Transfer() {
     benchmarkFramesRef.current+=1;
     benchmarkCodesRef.current+=codes.length;
     for(const value of codes)benchmarkUniqueRef.current.add(value);
-    if(decodeMs>0)benchmarkDecodeSamplesRef.current.push(decodeMs);
     const started=benchmarkStartedRef.current;
+    if(started!==null){
+      benchmarkSamplesRef.current.push({at:performance.now(),bytesRecovered:decodedBytesRef.current,codesObserved:benchmarkCodesRef.current});
+      if(benchmarkSamplesRef.current.length>240)benchmarkSamplesRef.current.shift();
+    }
+    if(decodeMs>0)benchmarkDecodeSamplesRef.current.push(decodeMs);
     if(started!==null && performance.now()-started>=10000){
-      const completed=finishBenchmark(started,benchmarkFramesRef.current,benchmarkCodesRef.current,benchmarkUniqueRef.current.size,benchmarkDecodeSamplesRef.current,decodedBytesRef.current);
+      const completed=finishBenchmark(started,benchmarkFramesRef.current,benchmarkCodesRef.current,benchmarkUniqueRef.current.size,benchmarkDecodeSamplesRef.current,decodedBytesRef.current,benchmarkSamplesRef.current);
       setBenchmark(completed);
       setBenchmarking(false);
       benchmarkStartedRef.current=null;
@@ -299,13 +304,14 @@ export function Transfer() {
     benchmarkCodesRef.current=0;
     benchmarkUniqueRef.current.clear();
     benchmarkDecodeSamplesRef.current=[];
+    benchmarkSamplesRef.current=[];
     benchmarkStartedRef.current=createBenchmarkStart();
     setBenchmark(null);
     setBenchmarking(true);
     benchmarkTimerRef.current=window.setTimeout(()=>{
       const started=benchmarkStartedRef.current;
       if(started===null)return;
-      setBenchmark(finishBenchmark(started,benchmarkFramesRef.current,benchmarkCodesRef.current,benchmarkUniqueRef.current.size,benchmarkDecodeSamplesRef.current,decodedBytesRef.current));
+      setBenchmark(finishBenchmark(started,benchmarkFramesRef.current,benchmarkCodesRef.current,benchmarkUniqueRef.current.size,benchmarkDecodeSamplesRef.current,decodedBytesRef.current,benchmarkSamplesRef.current));
       setBenchmarking(false);
       benchmarkStartedRef.current=null;
       benchmarkTimerRef.current=null;
