@@ -56,6 +56,8 @@ export function Transfer() {
   const fallbackCanvasRef=useRef<HTMLCanvasElement|null>(null);
   const qrPoolRef=useRef<QrDecodePool|null>(null);
   const timerRef=useRef<number|null>(null);
+  const playbackRafRef=useRef<number|null>(null);
+  const playbackLastAtRef=useRef(0);
   const qrEncoderRef=useRef<QrEncodePool|null>(null);
   const renderCacheRef=useRef<Map<string,{image:string;renderMs:number;encodeMs:number}>>(new Map());
   const renderEpochRef=useRef(0);
@@ -95,8 +97,24 @@ export function Transfer() {
 
   useEffect(()=>{
     if(!playing) return;
-    timerRef.current=window.setInterval(()=>setGroup(v=>v+1),intervalMs);
-    return()=>{ if(timerRef.current!==null) window.clearInterval(timerRef.current); timerRef.current=null; };
+
+    playbackLastAtRef.current=0;
+    const tick=(now:number)=>{
+      if(playbackLastAtRef.current===0 || now-playbackLastAtRef.current>=intervalMs){
+        playbackLastAtRef.current=now;
+        setGroup(v=>v+1);
+      }
+      playbackRafRef.current=window.requestAnimationFrame(tick);
+    };
+
+    playbackRafRef.current=window.requestAnimationFrame(tick);
+    return()=>{
+      if(playbackRafRef.current!==null){
+        window.cancelAnimationFrame(playbackRafRef.current);
+        playbackRafRef.current=null;
+      }
+      playbackLastAtRef.current=0;
+    };
   },[playing,intervalMs]);
 
   function clearRenderPipeline(){
@@ -222,7 +240,18 @@ export function Transfer() {
     return()=>{cancelled=true;};
   },[fountain,compat,group,autoTune,intervalMs]);
 
-  function stopPlayback(){ setPlaying(false); if(timerRef.current!==null){window.clearInterval(timerRef.current);timerRef.current=null;} }
+  function stopPlayback(){
+    setPlaying(false);
+    if(timerRef.current!==null){
+      window.clearInterval(timerRef.current);
+      timerRef.current=null;
+    }
+    if(playbackRafRef.current!==null){
+      window.cancelAnimationFrame(playbackRafRef.current);
+      playbackRafRef.current=null;
+    }
+    playbackLastAtRef.current=0;
+  }
   function stopReceive(){
     receivingRef.current=false;
     detectorRef.current=null;
