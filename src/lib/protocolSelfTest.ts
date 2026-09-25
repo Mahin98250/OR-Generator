@@ -7,7 +7,6 @@ import {
   parseMultiImageQr,
   reconstructMultiImage,
 } from './imageQr';
-import { analyzeScan } from './scan';
 import {
   addTransferFrame,
   clearTransfer,
