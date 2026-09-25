@@ -124,13 +124,15 @@ export function GeneratorForm() {
           <div className="mt-3 flex items-center justify-between gap-2">
             <button type="button" disabled={multiIndex <= 1} onClick={async () => {
               const next = Math.max(1, multiIndex - 1);
+              const chunk = await multiPlan.getChunk(next);
               setMultiIndex(next);
-              setSettings(prev => ({ ...prev, value: await multiPlan.getChunk(next), errorCorrectionLevel: 'L' }));
+              setSettings(prev => ({ ...prev, value: chunk, errorCorrectionLevel: 'L' }));
             }} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold disabled:opacity-40">Previous</button>
             <button type="button" disabled={multiIndex >= multiPlan.total} onClick={async () => {
               const next = Math.min(multiPlan.total, multiIndex + 1);
+              const chunk = await multiPlan.getChunk(next);
               setMultiIndex(next);
-              setSettings(prev => ({ ...prev, value: await multiPlan.getChunk(next), errorCorrectionLevel: 'L' }));
+              setSettings(prev => ({ ...prev, value: chunk, errorCorrectionLevel: 'L' }));
             }} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold disabled:opacity-40">Next</button>
           </div>
           <p className="mt-3 text-center text-[11px] leading-5 text-[var(--text-muted)]">Frames are generated on demand, so large photos do not load thousands of QR images into memory at once.</p>
