@@ -516,6 +516,42 @@ function sampleModule(image: ImageData, x: number, y: number, moduleScale: numbe
   return total / count;
 }
 
+export type OptiFrameAcquisitionStage = 'image' | 'searching' | 'anchors' | 'geometry' | 'calibration' | 'ready';
+
+export type OptiFrameAcquisitionDiagnostics = {
+  stage: OptiFrameAcquisitionStage;
+  anchors: OptiFrameAnchor[];
+  confidence: number;
+  moduleScale: number;
+  angle: number;
+  geometryRatio: number;
+  sampleWidth: number;
+  sampleHeight: number;
+  elapsedMs: number;
+};
+
+export function inspectOptiFrameAcquisition(source: CanvasImageSource | ImageData): OptiFrameAcquisitionDiagnostics {
+  const started = performance.now();
+  const image = toImageData(source);
+  if (!image) return { stage: 'image', anchors: [], confidence: 0, moduleScale: 0, angle: 0, geometryRatio: 0, sampleWidth: 0, sampleHeight: 0, elapsedMs: performance.now() - started };
+  const found: OptiFrameAnchor[] = [];
+  for (const corner of ['tl', 'tr', 'bl', 'br'] as const) {
+    const anchor = searchFinder(image, corner);
+    if (anchor) found.push(anchor);
+  }
+  const confidence = found.length ? found.reduce((sum, anchor) => sum + anchor.score, 0) / found.length : 0;
+  const moduleScale = found.length ? found.reduce((sum, anchor) => sum + anchor.scale, 0) / found.length : 0;
+  const angle = found.length ? found.reduce((sum, anchor) => sum + anchor.angle, 0) / found.length : 0;
+  if (found.length < 4) return { stage: found.length ? 'anchors' : 'searching', anchors: found, confidence, moduleScale, angle, geometryRatio: 0, sampleWidth: image.width, sampleHeight: image.height, elapsedMs: performance.now() - started };
+  const [tl, tr, bl, br] = found;
+  const widths = [Math.hypot(tr.x - tl.x, tr.y - tl.y), Math.hypot(br.x - bl.x, br.y - bl.y)];
+  const heights = [Math.hypot(bl.x - tl.x, bl.y - tl.y), Math.hypot(br.x - tr.x, br.y - tr.y)];
+  const geometryRatio = Math.max(...widths, ...heights) / Math.max(1, Math.min(...widths, ...heights));
+  if (geometryRatio > 2.75) return { stage: 'geometry', anchors: found, confidence, moduleScale, angle, geometryRatio, sampleWidth: image.width, sampleHeight: image.height, elapsedMs: performance.now() - started };
+  if (!estimateCalibration(image, found)) return { stage: 'calibration', anchors: found, confidence, moduleScale, angle, geometryRatio, sampleWidth: image.width, sampleHeight: image.height, elapsedMs: performance.now() - started };
+  return { stage: 'ready', anchors: found, confidence, moduleScale, angle, geometryRatio, sampleWidth: image.width, sampleHeight: image.height, elapsedMs: performance.now() - started };
+}
+
 export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData): { frame: OptiFrame; diagnostics: OptiFramePerspectiveDiagnostics } | null {
   const started = performance.now();
   const image = toImageData(source);
