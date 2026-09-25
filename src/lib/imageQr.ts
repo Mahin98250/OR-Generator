@@ -101,7 +101,7 @@ export async function encodeImageForMultiQr(file: File) {
 
   // v2 keeps the original filename so a reconstructed photo can be saved
   // with the exact name supplied to the generator. The parser remains
-  // backwards-compatible with the earlier 6-field header.
+  // backwards-compatible with the earlier v1 header.
   const base = `${MULTI_IMAGE_QR_PREFIX}${id}|${mime}|${name}|${hash}|`;
   const chunks = Array.from({ length: total }, (_, index) =>
     `${base}${index + 1}|${total}|${encoded.slice(index * MULTI_CHUNK_CHARS, (index + 1) * MULTI_CHUNK_CHARS)}`
@@ -118,7 +118,7 @@ export function parseMultiImageQr(value: string) {
   if (!isMultiImageQr(value)) return null;
 
   const parts = value.split('|');
-  if (parts.length !== 7 && parts.length !== 6) return null;
+  if (parts.length !== 7 && parts.length !== 8) return null;
 
   // v1: prefix,id,mime,hash,index,total,data
   // v2: prefix,id,mime,name,hash,index,total,data
