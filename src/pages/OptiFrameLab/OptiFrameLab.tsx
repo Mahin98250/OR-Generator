@@ -91,11 +91,10 @@ export function OptiFrameLab() {
     const img = new Image();
     img.onload = () => {
       try {
-        const perspective = decodeOptiFramePerspective(img);
-        const out = decodeOptiFrame(img) ?? perspective?.frame;
+        const out = decodeOptiFrame(img) ?? decodeOptiFramePerspective(img)?.frame;
         if (!out) throw new Error('Rejected: invalid frame, perspective correction failed, or CRC mismatch.');
         setDecoded(utf8ToText(out.payload));
-        setStatus(`Decoded frame ${out.sequence + 1}/${out.total}; CRC-32 verified${perspective ? ` · anchor confidence ${Math.round(perspective.diagnostics.confidence * 100)}%` : ''}.`);
+        setStatus(`Decoded frame ${out.sequence + 1}/${out.total}; CRC-32 verified.`);
       } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Unable to decode frame.');
       } finally {
@@ -154,7 +153,7 @@ export function OptiFrameLab() {
     if (!result) return;
 
     const frame = result.frame;
-    if (frame.sequence === 0 && seenSequenceRef.current.size > 0) {
+    if (frame.sequence === 0 && receiver.complete) {
       seenSequenceRef.current.clear();
       assemblerRef.current.reset();
     }
