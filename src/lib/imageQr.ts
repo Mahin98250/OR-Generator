@@ -2,6 +2,8 @@ export const IMAGE_QR_PREFIX = 'ORIMG1:';
 export const MULTI_IMAGE_QR_PREFIX = 'ORMIMG1:';
 const MAX_SINGLE_PAYLOAD_CHARS = 2850;
 const MULTI_CHUNK_CHARS = 1800;
+const MAX_MULTI_FRAMES = 25000;
+const MAX_MULTI_IMAGE_SIZE = 25 * 1024 * 1024;
 
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -29,7 +31,9 @@ function render(img: HTMLImageElement, side: number, quality: number) {
 function toBase64(bytes: Uint8Array) {
   let binary = '';
   const step = 0x8000;
-  for (let i = 0; i < bytes.length; i += step) binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + step, bytes.length)));
+  for (let i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + step, bytes.length)));
+  }
   return btoa(binary);
 }
 
@@ -46,18 +50,63 @@ async function shortHash(bytes: Uint8Array) {
   return Array.from(new Uint8Array(digest)).map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
+function encodeName(name: string) {
+  return btoa(unescape(encodeURIComponent(name))).replace(/=/g, '');
+}
+
+function decodeName(value: string) {
+  return decodeURIComponent(escape(atob(value)));
+}
+
+function readState(key: string) {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeState(key: string, value: string) {
+  try {
+    sessionStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeState(key: string) {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Storage can be unavailable in private/restricted contexts.
+  }
+}
+
 export async function encodeImageForMultiQr(file: File) {
   if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
-  if (file.size > 25 * 1024 * 1024) throw new Error('For Multi-QR Photo, choose an image smaller than 25 MB.');
+  if (file.size > MAX_MULTI_IMAGE_SIZE) throw new Error('For Multi-QR Photo, choose an image smaller than 25 MB.');
+
   const bytes = new Uint8Array(await file.arrayBuffer());
   const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
   const hash = await shortHash(bytes);
-  const base = `${MULTI_IMAGE_QR_PREFIX}${id}|${file.type}|${hash}|`;
+  const mime = encodeURIComponent(file.type);
+  const name = encodeName(file.name);
   const encoded = toBase64(bytes);
   const total = Math.ceil(encoded.length / MULTI_CHUNK_CHARS);
+
+  if (!total || total > MAX_MULTI_FRAMES) {
+    throw new Error('This image would require too many QR frames. Choose a smaller image.');
+  }
+
+  // v2 keeps the original filename so a reconstructed photo can be saved
+  // with the exact name supplied to the generator. The parser remains
+  // backwards-compatible with the earlier 6-field header.
+  const base = `${MULTI_IMAGE_QR_PREFIX}${id}|${mime}|${name}|${hash}|`;
   const chunks = Array.from({ length: total }, (_, index) =>
     `${base}${index + 1}|${total}|${encoded.slice(index * MULTI_CHUNK_CHARS, (index + 1) * MULTI_CHUNK_CHARS)}`
   );
+
   return { id, hash, chunks, total, size: file.size, mime: file.type, name: file.name };
 }
 
@@ -67,38 +116,177 @@ export function isMultiImageQr(value: string) {
 
 export function parseMultiImageQr(value: string) {
   if (!isMultiImageQr(value)) return null;
+
   const parts = value.split('|');
-  if (parts.length < 6) return null;
-  const [, id, mime, hash, indexRaw, totalRaw, data] = parts;
-  const index = Number(indexRaw), total = Number(totalRaw);
-  if (!id || !mime || !hash || !Number.isInteger(index) || !Number.isInteger(total) || index < 1 || total < index || !data) return null;
-  return { id, mime, hash, index, total, data };
+  if (parts.length !== 7 && parts.length !== 6) return null;
+
+  // v1: prefix,id,mime,hash,index,total,data
+  // v2: prefix,id,mime,name,hash,index,total,data
+  const [, id, mimeRaw, third, fourth, fifth, sixth, seventh] = parts;
+  const isV2 = parts.length === 8;
+  const hash = isV2 ? fourth : third;
+  const nameRaw = isV2 ? third : '';
+  const indexRaw = isV2 ? fifth : fourth;
+  const totalRaw = isV2 ? sixth : fifth;
+  const data = isV2 ? seventh : sixth;
+
+  const index = Number(indexRaw);
+  const total = Number(totalRaw);
+
+  if (
+    !id ||
+    !mimeRaw ||
+    !hash ||
+    !Number.isInteger(index) ||
+    !Number.isInteger(total) ||
+    index < 1 ||
+    total < 1 ||
+    index > total ||
+    total > MAX_MULTI_FRAMES ||
+    !data ||
+    data.length > MULTI_CHUNK_CHARS
+  ) return null;
+
+  try {
+    const mime = decodeURIComponent(mimeRaw);
+    const name = nameRaw ? decodeName(nameRaw) : 'reconstructed-original-image';
+    if (!mime || !name) return null;
+    return { id, mime, name, hash, index, total, data };
+  } catch {
+    return null;
+  }
 }
 
 export function addMultiImageChunk(value: string) {
   const parsed = parseMultiImageQr(value);
   if (!parsed) return null;
+
   const key = `or-multi-image-${parsed.id}`;
-  const current = JSON.parse(sessionStorage.getItem(key) || 'null') as { mime:string; hash:string; total:number; chunks:Record<string,string> } | null;
-  const state = current && current.hash === parsed.hash && current.total === parsed.total
-    ? current
-    : { mime: parsed.mime, hash: parsed.hash, total: parsed.total, chunks: {} };
+  let current: {
+    mime: string;
+    name: string;
+    hash: string;
+    total: number;
+    chunks: Record<string, string>;
+  } | null = null;
+
+  try {
+    const raw = readState(key);
+    current = raw ? JSON.parse(raw) : null;
+  } catch {
+    current = null;
+  }
+
+  if (
+    current &&
+    (
+      current.hash !== parsed.hash ||
+      current.total !== parsed.total ||
+      current.mime !== parsed.mime ||
+      (current.name && current.name !== parsed.name)
+    )
+  ) {
+    removeState(key);
+    current = null;
+  }
+
+  const state = current ?? {
+    mime: parsed.mime,
+    name: parsed.name,
+    hash: parsed.hash,
+    total: parsed.total,
+    chunks: {},
+  };
+
+  const previous = state.chunks[String(parsed.index)];
+  if (previous && previous !== parsed.data) {
+    throw new Error('Conflicting Multi-QR frame detected. Rescan the transfer from the beginning.');
+  }
+
+  const duplicate = Boolean(previous);
   state.chunks[String(parsed.index)] = parsed.data;
-  sessionStorage.setItem(key, JSON.stringify(state));
-  return { ...parsed, received: Object.keys(state.chunks).length, complete: Object.keys(state.chunks).length === state.total };
+
+  if (!writeState(key, JSON.stringify(state))) {
+    throw new Error('Browser storage is unavailable. Allow site storage and try again.');
+  }
+
+  return {
+    ...parsed,
+    received: Object.keys(state.chunks).length,
+    complete: Object.keys(state.chunks).length === state.total,
+    duplicate,
+  };
+}
+
+export function getMultiImageMissingFrames(id: string) {
+  const raw = readState(`or-multi-image-${id}`);
+  if (!raw) return [];
+
+  try {
+    const state = JSON.parse(raw) as { total: number; chunks: Record<string, string> };
+    if (!Number.isInteger(state.total) || state.total < 1 || state.total > MAX_MULTI_FRAMES) return [];
+    const missing: number[] = [];
+    for (let i = 1; i <= state.total; i++) {
+      if (!state.chunks[String(i)]) missing.push(i);
+    }
+    return missing;
+  } catch {
+    return [];
+  }
+}
+
+export function clearMultiImage(id: string) {
+  removeState(`or-multi-image-${id}`);
 }
 
 export async function reconstructMultiImage(id: string) {
-  const raw = sessionStorage.getItem(`or-multi-image-${id}`);
+  const raw = readState(`or-multi-image-${id}`);
   if (!raw) return null;
-  const state = JSON.parse(raw) as { mime:string; hash:string; total:number; chunks:Record<string,string> };
+
+  let state: {
+    mime: string;
+    name: string;
+    hash: string;
+    total: number;
+    chunks: Record<string, string>;
+  };
+
+  try {
+    state = JSON.parse(raw);
+  } catch {
+    throw new Error('The saved Multi-QR session is corrupted. Start a new scan.');
+  }
+
+  if (!Number.isInteger(state.total) || state.total < 1 || state.total > MAX_MULTI_FRAMES) {
+    throw new Error('The Multi-QR session is invalid. Start a new scan.');
+  }
+
+  const missing = getMultiImageMissingFrames(id);
+  if (missing.length) return null;
+
   const encoded = Array.from({ length: state.total }, (_, i) => state.chunks[String(i + 1)]).join('');
-  if (!encoded || encoded.length === 0) return null;
-  const bytes = fromBase64(encoded);
-  if (await shortHash(bytes) !== state.hash) throw new Error('Image verification failed. Please rescan the missing frame(s).');
+  if (!encoded) return null;
+
+  let bytes: Uint8Array;
+  try {
+    bytes = fromBase64(encoded);
+  } catch {
+    throw new Error('The reconstructed image data is invalid. Rescan the missing frame(s).');
+  }
+
+  if (await shortHash(bytes) !== state.hash) {
+    throw new Error('Image verification failed. Please rescan the missing frame(s).');
+  }
+
   const blob = new Blob([bytes], { type: state.mime });
-  sessionStorage.removeItem(`or-multi-image-${id}`);
-  return URL.createObjectURL(blob);
+  removeState(`or-multi-image-${id}`);
+
+  return {
+    url: URL.createObjectURL(blob),
+    name: state.name || 'reconstructed-original-image',
+    size: bytes.byteLength,
+    mime: state.mime,
+  };
 }
 
 export async function encodeImageForQr(file: File) {
@@ -117,7 +305,10 @@ export async function encodeImageForQr(file: File) {
   throw new Error('This photo cannot fit into one QR code. Use Multi-QR Photo for the original file with no downscaling.');
 }
 
-export function isImageQr(value: string) { return value.startsWith(IMAGE_QR_PREFIX); }
+export function isImageQr(value: string) {
+  return value.startsWith(IMAGE_QR_PREFIX);
+}
+
 export function decodeImageQr(value: string) {
   if (!isImageQr(value)) return null;
   const data = value.slice(IMAGE_QR_PREFIX.length);
