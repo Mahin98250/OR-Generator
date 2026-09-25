@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { Link } from 'react-router-dom';
 import { addTransferFrame, clearTransfer, createTransfer, getTransferMissingFrames, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
+import { countChunks, getSessions } from '../../lib/sessionStore';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
 type DetectorCtor = new (options?:{formats?:string[]}) => Detector;
@@ -20,6 +21,7 @@ export function Transfer() {
   const [intervalMs,setIntervalMs]=useState(1000);
   const [progress,setProgress]=useState<{session:string;received:number;total:number;name:string;missingCount:number;missing:number[]|null;duplicates:number}|null>(null);
   const [result,setResult]=useState<{url:string;name:string;size:number}|null>(null);
+  const [savedSessions,setSavedSessions]=useState<Array<{id:string;name:string;received:number;total:number;createdAt:number}>>([]);
   const inputRef=useRef<HTMLInputElement>(null);
   const videoRef=useRef<HTMLVideoElement>(null);
   const streamRef=useRef<MediaStream|null>(null);
@@ -30,6 +32,22 @@ export function Transfer() {
   const playTimerRef=useRef<number|null>(null);
   const playerRef=useRef<HTMLDivElement>(null);
   const [fullscreen,setFullscreen]=useState(false);
+
+  async function loadSavedSessions() {
+    try {
+      const sessions = await getSessions('transfer');
+      const next = await Promise.all(sessions.map(async session => ({
+        id: session.id,
+        name: session.name,
+        received: await countChunks(session.key),
+        total: session.total,
+        createdAt: session.createdAt,
+      })));
+      setSavedSessions(next.filter(session => session.received > 0).sort((a,b)=>b.createdAt-a.createdAt).slice(0,3));
+    } catch {
+      setSavedSessions([]);
+    }
+  }
 
   useEffect(()=>{
     if(!plan){
@@ -45,6 +63,7 @@ export function Transfer() {
 
     return()=>{cancelled=true;};
   },[plan,index]);
+  useEffect(()=>{ void loadSavedSessions(); },[]);
   useEffect(()=>()=>{ stopReceive(); stopPlayback(); },[]);
   useEffect(()=>()=>{ if(result?.url) URL.revokeObjectURL(result.url); },[result]);
   useEffect(()=>{ const onFullscreen=()=>setFullscreen(document.fullscreenElement===playerRef.current); document.addEventListener('fullscreenchange',onFullscreen); return()=>document.removeEventListener('fullscreenchange',onFullscreen); },[]);
@@ -71,6 +90,7 @@ export function Transfer() {
           missing:null,
           duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0),
         }));
+        void loadSavedSessions();
         if(added.complete) {
           try {
             const rebuilt=await reconstructTransfer(added.session);
@@ -117,6 +137,7 @@ export function Transfer() {
               missing:null,
               duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0),
             }));
+            void loadSavedSessions();
             if(added.complete){
               const rebuilt=await reconstructTransfer(added.session);
               if(rebuilt){
@@ -178,6 +199,11 @@ export function Transfer() {
           {result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><ShieldCheck className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}
           {error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}
           {!progress&&!result&&!error&&<p className="mt-5 text-sm leading-6 text-[var(--text-muted)]">Start the receiver, then point this camera at the sender’s looping OR Transfer QR stream. Frames may arrive out of order and duplicates are ignored.</p>}
+          {savedSessions.length>0&&!progress&&!result&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[.14em] text-cyan-300">Saved local sessions</p>
+            <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">Incomplete transfers survive a page refresh on this device. Start scanning to continue collecting the remaining frames.</p>
+            <div className="mt-3 space-y-2">{savedSessions.map(session=><div key={session.id} className="flex items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-2.5"><div className="min-w-0"><p className="truncate text-xs font-bold">{session.name}</p><p className="text-[11px] text-[var(--text-muted)]">{session.received} / {session.total} frames already saved</p></div><button onClick={()=>setProgress({session:session.id,received:session.received,total:session.total,name:session.name,missingCount:session.total-session.received,missing:null,duplicates:0})} className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-bold text-[var(--text)]">Resume</button></div>)}</div>
+          </div>}
         </div>
       </div>
     </div>
