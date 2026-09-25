@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Camera, CameraOff, CheckCircle2, Copy, Crosshair, Download, FlaskConical, Pause, Play, RotateCcw, ScanLine, Timer, Upload, Zap } from 'lucide-react';
+import { Activity, Camera, CameraOff, CheckCircle2, Copy, Crosshair, Download, FlaskConical, Maximize2, Minimize2, Pause, Play, RotateCcw, ScanLine, Timer, Upload, Zap } from 'lucide-react';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { GlassButton } from '../../components/ui/GlassButton';
 import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, inspectOptiFrameAcquisition, OPTIFRAME_SIZE, type OptiFrameAcquisitionDiagnostics, type OptiFramePerspectiveDiagnostics } from '../../lib/optiframe';
@@ -81,6 +81,7 @@ export function OptiFrameLab() {
   const [acquisition, setAcquisition] = useState<OptiFrameAcquisitionDiagnostics>({ stage: 'image', anchors: [], confidence: 0, moduleScale: 0, angle: 0, geometryRatio: 0, sampleWidth: 0, sampleHeight: 0, elapsedMs: 0 });
   const [cameraCapabilities, setCameraCapabilities] = useState<string[]>([]);
   const [acquisitionTest, setAcquisitionTest] = useState<AcquisitionTestState>(emptyAcquisitionTest);
+  const [opticalDisplayMode, setOpticalDisplayMode] = useState(false);
   const [streamPlaying, setStreamPlaying] = useState(false);
   const [streamIndex, setStreamIndex] = useState(0);
   const [laneCount, setLaneCount] = useState<OptiLaneCount>(1);
@@ -95,6 +96,7 @@ export function OptiFrameLab() {
   const decodePoolRef = useRef(new OptiFrameDecodePool());
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const presentationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const seenSequenceRef = useRef(new Set<number>());
   const trackedAnchorsRef = useRef<OptiFramePerspectiveDiagnostics['anchors'] | null>(null);
   const framesSinceFullScanRef = useRef(0);
@@ -146,15 +148,19 @@ export function OptiFrameLab() {
   }, [streamPayload, streamIndex, laneCount]);
 
   useEffect(() => {
-    const target = streamCanvasRef.current;
-    if (!target || !streamSurface) return;
-    target.width = streamSurface.width;
-    target.height = streamSurface.height;
-    const ctx = target.getContext('2d');
-    if (!ctx) return;
-    ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, target.width, target.height);
-    ctx.drawImage(streamSurface, 0, 0);
+    const drawSurface = (target: HTMLCanvasElement | null) => {
+      if (!target || !streamSurface) return;
+      target.width = streamSurface.width;
+      target.height = streamSurface.height;
+      const ctx = target.getContext('2d');
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, target.width, target.height);
+      ctx.drawImage(streamSurface, 0, 0);
+    };
+
+    drawSurface(streamCanvasRef.current);
+    drawSurface(presentationCanvasRef.current);
   }, [streamSurface]);
 
   function generate() {
@@ -717,6 +723,7 @@ export function OptiFrameLab() {
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <GlassButton onClick={() => setStreamPlaying(value => !value)}>{streamPlaying ? <Pause size={14}/> : <Play size={14}/>} {streamPlaying ? 'Pause stream' : 'Play stream'}</GlassButton>
+            {laneCount === 1 && <button onClick={() => setOpticalDisplayMode(true)} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]"><Maximize2 size={14}/> Fullscreen 1×</button>}
             <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text)]">
               Speed
               <select value={streamIntervalMs} onChange={event => setStreamIntervalMs(Number(event.target.value))} className="bg-transparent outline-none">
@@ -732,6 +739,25 @@ export function OptiFrameLab() {
           <p className="mt-3 text-xs text-[var(--text-muted)]">{laneCount > 1 ? `Multi-lane mode displays ${laneCount} independent frames at once; the receiver uses the matching ${laneCount === 2 ? '2:1' : '1:1'} grid aspect ratio and decodes lanes through the worker pool.` : 'For the first physical test, use 1× mode, fill the optical surface with the camera view, and keep all four finder anchors visible. Move closer only after the first frame is detected.'}</p>
         </GlassCard>
       </div>
+
+      {opticalDisplayMode && streamSurface && (
+        <div className="fixed inset-0 z-[100] flex min-h-0 flex-col bg-white p-2 sm:p-4">
+          <div className="flex items-center justify-between gap-3 text-slate-900">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-700">OptiFrame 1× optical display</p>
+              <p className="text-xs font-bold">Fill this screen with the frame. Keep all four finder anchors visible to the receiver.</p>
+            </div>
+            <button onClick={() => setOpticalDisplayMode(false)} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-900 shadow-sm"><Minimize2 size={14}/> Exit</button>
+          </div>
+          <div className="min-h-0 flex-1 grid place-items-center py-2">
+            <canvas
+              ref={presentationCanvasRef}
+              aria-label="Fullscreen OptiFrame 1x optical display"
+              className="block h-auto max-h-full w-auto max-w-full"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
         <GlassCard>
