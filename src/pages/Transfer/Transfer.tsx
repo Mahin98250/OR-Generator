@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, FileUp, LockKeyhole, Radio, ScanLine, ShieldCheck, WifiOff } from 'lucide-react';
 import QRCode from 'qrcode';
-import { BrowserMultiFormatReader } from '@zxing/browser';
+import jsQR from 'jsqr';
 import { Link } from 'react-router-dom';
-import { addTransferFrame, clearTransfer, createTransfer, getTransferMissingFrames, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
+import { OR_TRANSFER_GRID_SIZE, addTransferFrame, clearTransfer, createTransfer, getTransferMissingFrames, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
 import { countChunks, getSessions } from '../../lib/sessionStore';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
@@ -18,7 +18,7 @@ export function Transfer() {
   const [error,setError]=useState('');
   const [receiving,setReceiving]=useState(false);
   const [playing,setPlaying]=useState(false);
-  const [intervalMs,setIntervalMs]=useState(1000);
+  const [intervalMs,setIntervalMs]=useState(250);
   const [progress,setProgress]=useState<{session:string;received:number;total:number;name:string;missingCount:number;missing:number[]|null;duplicates:number}|null>(null);
   const [result,setResult]=useState<{url:string;name:string;size:number}|null>(null);
   const [savedSessions,setSavedSessions]=useState<Array<{id:string;name:string;received:number;total:number;createdAt:number}>>([]);
@@ -27,8 +27,7 @@ export function Transfer() {
   const streamRef=useRef<MediaStream|null>(null);
   const receivingRef=useRef(false);
   const detectorRef=useRef<Detector|null>(null);
-  const zxingRef=useRef<BrowserMultiFormatReader|null>(null);
-  const zxingControlsRef=useRef<{stop:()=>void}|null>(null);
+  const fallbackCanvasRef=useRef<HTMLCanvasElement|null>(null);
   const playTimerRef=useRef<number|null>(null);
   const playerRef=useRef<HTMLDivElement>(null);
   const [fullscreen,setFullscreen]=useState(false);
@@ -51,17 +50,22 @@ export function Transfer() {
   }
 
   useEffect(()=>{
-    if(!plan){
-      setQr('');
-      return;
-    }
-
+    if(!plan){ setQr(''); return; }
     let cancelled=false;
-    void plan.getFrame(index+1)
-      .then(frame=>QRCode.toDataURL(frame,{width:900,margin:3,errorCorrectionLevel:'M'}))
-      .then((value:string)=>{if(!cancelled)setQr(value);})
+    const first=index*OR_TRANSFER_GRID_SIZE+1;
+    const indexes=Array.from({length:OR_TRANSFER_GRID_SIZE},(_,slot)=>first+slot).filter(frameIndex=>frameIndex<=plan.total);
+    void Promise.all(indexes.map(frameIndex=>plan.getFrame(frameIndex).then(frame=>QRCode.toDataURL(frame,{width:430,margin:2,errorCorrectionLevel:'L'}))))
+      .then(urls=>new Promise<string>((resolve,reject)=>{
+        const canvas=document.createElement('canvas'); canvas.width=900; canvas.height=900;
+        const ctx=canvas.getContext('2d'); if(!ctx){reject(new Error('Canvas is unavailable.'));return;}
+        ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,900,900);
+        const positions=[[15,15],[455,15],[15,455],[455,455]] as const;
+        Promise.all(urls.map((url,slot)=>new Promise<void>((ok,bad)=>{
+          const image=new Image(); image.onload=()=>{ctx.drawImage(image,positions[slot][0],positions[slot][1],430,430);ok();}; image.onerror=()=>bad(new Error('Unable to compose transfer QR.')); image.src=url;
+        }))).then(()=>resolve(canvas.toDataURL('image/png'))).catch(reject);
+      }))
+      .then(value=>{if(!cancelled)setQr(value);})
       .catch(()=>{if(!cancelled)setError('Unable to render transfer QR.');});
-
     return()=>{cancelled=true;};
   },[plan,index]);
   useEffect(()=>{ void loadSavedSessions(); },[]);
@@ -70,7 +74,8 @@ export function Transfer() {
   useEffect(()=>{ const onFullscreen=()=>setFullscreen(document.fullscreenElement===playerRef.current); document.addEventListener('fullscreenchange',onFullscreen); return()=>document.removeEventListener('fullscreenchange',onFullscreen); },[]);
   useEffect(()=>{
     if(!playing || !plan || plan.total < 2) return;
-    playTimerRef.current = window.setInterval(()=>setIndex(i=>(i+1)%plan.total), intervalMs);
+    const groups=Math.ceil(plan.total/OR_TRANSFER_GRID_SIZE);
+    playTimerRef.current = window.setInterval(()=>setIndex(i=>(i+1)%groups), intervalMs);
     return ()=>{ if(playTimerRef.current!==null) window.clearInterval(playTimerRef.current); playTimerRef.current=null; };
   },[playing,plan,intervalMs]);
 
@@ -88,38 +93,24 @@ export function Transfer() {
     return true;
   }
 
+  async function processTransferValue(value:string) {
+    if(!value || !isTransferFrame(value) || !shouldProcessFrame(value)) return;
+    const frame=parseTransferFrame(value); if(!frame) return;
+    const added=await addTransferFrame(frame);
+    setProgress(prev => ({session:added.session,received:added.received,total:added.total,name:added.name,missingCount:added.missingCount,missing:null,duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0)}));
+    void loadSavedSessions();
+    if(added.complete) {
+      const rebuilt=await reconstructTransfer(added.session);
+      if(rebuilt){ setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size}); setProgress(null); stopReceive(); }
+    }
+  }
+
   async function scanLoop() {
     if(!receivingRef.current||!videoRef.current||!detectorRef.current)return;
     try {
       const found=await detectorRef.current.detect(videoRef.current);
       for(const item of found) {
-        const value=item.rawValue||''; if(!isTransferFrame(value))continue;
-        if(!shouldProcessFrame(value))continue;
-        const frame=parseTransferFrame(value); if(!frame)continue;
-        const added=await addTransferFrame(frame);
-        setProgress(prev => ({
-          session:added.session,
-          received:added.received,
-          total:added.total,
-          name:added.name,
-          missingCount:added.missingCount,
-          missing:null,
-          duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0),
-        }));
-        void loadSavedSessions();
-        if(added.complete) {
-          try {
-            const rebuilt=await reconstructTransfer(added.session);
-            if(rebuilt){
-              setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});
-              setProgress(null);
-              stopReceive();
-              return;
-            }
-          } catch(e) {
-            setError(e instanceof Error?e.message:'Transfer verification failed.');
-          }
-        }
+        const value=item.rawValue||''; try { await processTransferValue(value); } catch(e) { setError(e instanceof Error?e.message:'Transfer verification failed.'); }
       }
     } catch {}
     if(receivingRef.current) window.setTimeout(()=>void scanLoop(),90);
@@ -136,45 +127,30 @@ export function Transfer() {
         detectorRef.current=new Ctor({formats:['qr_code']});
         void scanLoop();
       } else {
-        const reader=new BrowserMultiFormatReader();
-        zxingRef.current=reader;
-        const controls=await reader.decodeFromVideoDevice(undefined, videoRef.current ?? undefined, async (result) => {
-          const value=result?.getText?.() || '';
-          if(!value || !isTransferFrame(value) || !shouldProcessFrame(value)) return;
-          const frame=parseTransferFrame(value); if(!frame) return;
-          try {
-            const added=await addTransferFrame(frame);
-            setProgress(prev => ({
-              session:added.session,
-              received:added.received,
-              total:added.total,
-              name:added.name,
-              missingCount:added.missingCount,
-              missing:null,
-              duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0),
-            }));
-            void loadSavedSessions();
-            if(added.complete){
-              const rebuilt=await reconstructTransfer(added.session);
-              if(rebuilt){
-                setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});
-                setProgress(null);
-                stopReceive();
-              }
+        const canvas=document.createElement('canvas');
+        fallbackCanvasRef.current=canvas;
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});
+        const loop=async()=>{
+          if(!receivingRef.current||!videoRef.current||!ctx)return;
+          const video=videoRef.current, w=video.videoWidth, h=video.videoHeight;
+          if(w&&h){
+            const halfW=Math.floor(w/2),halfH=Math.floor(h/2); canvas.width=halfW; canvas.height=halfH;
+            const regions=[[0,0],[halfW,0],[0,halfH],[halfW,halfH]] as const;
+            for(const [x,y] of regions){
+              ctx.drawImage(video,x,y,halfW,halfH,0,0,halfW,halfH);
+              const image=ctx.getImageData(0,0,halfW,halfH);
+              const decoded=jsQR(image.data,halfW,halfH,{inversionAttempts:'dontInvert'});
+              if(decoded?.data){ try { await processTransferValue(decoded.data); } catch(e) { setError(e instanceof Error?e.message:'Transfer verification failed.'); } }
+              if(!receivingRef.current)return;
             }
-          } catch(e) {
-            setError(e instanceof Error?e.message:'Transfer verification failed.');
           }
-        });
-        if (receivingRef.current) {
-          zxingControlsRef.current = controls;
-        } else {
-          controls.stop();
-        }
+          if(receivingRef.current) window.setTimeout(()=>void loop(),90);
+        };
+        void loop();
       }
     } catch(e) { setError(e instanceof Error?e.message:'Camera permission was denied.'); setReceiving(false); receivingRef.current=false; }
   }
-  function stopReceive() { receivingRef.current=false; detectorRef.current=null; zxingControlsRef.current?.stop(); zxingControlsRef.current=null; zxingRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false); }
+  function stopReceive() { receivingRef.current=false; detectorRef.current=null; fallbackCanvasRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false); }
   function stopPlayback() { setPlaying(false); if(playTimerRef.current!==null){window.clearInterval(playTimerRef.current);playTimerRef.current=null;} }
 
   async function enterFullscreen() { try { await playerRef.current?.requestFullscreen?.(); setFullscreen(true); } catch { setError('Fullscreen is not available on this browser.'); } }
@@ -191,7 +167,7 @@ export function Transfer() {
     <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1"><button onClick={()=>{stopReceive();setTab('send')}} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab==='send'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}><FileUp size={15} className="mr-2 inline"/>Send</button><button onClick={()=>setTab('receive')} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab==='receive'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}><ScanLine size={15} className="mr-2 inline"/>Receive</button></div>
     {tab==='send'?<div className="mt-5 grid gap-5 lg:grid-cols-[.85fr_1fr]">
       <div className="glass-panel rounded-[28px] p-5"><input ref={inputRef} type="file" className="sr-only" onChange={e=>{void choose(e.target.files?.[0]);e.currentTarget.value='';}}/><button onClick={()=>inputRef.current?.click()} className="w-full rounded-[24px] border border-dashed border-cyan-300/30 bg-cyan-300/[.05] p-8 text-center"><FileUp className="mx-auto text-cyan-300" size={30}/><p className="mt-3 font-bold">Choose any file</p><p className="mt-1 text-xs text-[var(--text-muted)]">Up to 100 MB · processed locally</p></button>{file&&<div className="mt-4 rounded-2xl bg-white/5 p-4"><p className="truncate font-bold">{file.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(file.size/1024/1024).toFixed(2)} MB · {plan?.total ?? 0} QR frames</p></div>}<div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-white/5 p-4"><ShieldCheck size={18} className="text-emerald-300"/><p className="mt-2 text-sm font-bold">Byte-accurate</p><p className="mt-1 text-xs text-[var(--text-muted)]">SHA-256 verifies the reconstructed file.</p></div><div className="rounded-2xl bg-white/5 p-4"><LockKeyhole size={18} className="text-cyan-300"/><p className="mt-2 text-sm font-bold">Local only</p><p className="mt-1 text-xs text-[var(--text-muted)]">No upload or server is involved.</p></div></div></div>
-      <div ref={playerRef} className="glass-panel rounded-[28px] p-5">{qr?<><div className="rounded-[28px] bg-white p-5"><img src={qr} alt="OR Transfer frame" className="mx-auto max-h-[78vh] w-full max-w-[900px] object-contain" style={{imageRendering:'pixelated'}}/></div><div className="mt-4 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold">Frame {index+1} / {plan?.total ?? 0}</p><div className="flex flex-wrap gap-2"><button disabled={!plan} onClick={()=>setIndex(i=>Math.max(0,i-1))} className="rounded-full bg-white/10 px-4 py-2 text-sm">Prev</button><button disabled={!plan} onClick={()=>setIndex(i=>Math.min((plan?.total ?? 1)-1,i+1))} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">Next</button><button disabled={!plan || plan.total<2} onClick={()=>playing?stopPlayback():setPlaying(true)} className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">{playing?'Pause':'Play stream'}</button><button disabled={!plan} onClick={()=>fullscreen?void exitFullscreen():void enterFullscreen()} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">{fullscreen?'Exit full screen':'Full screen'}</button></div></div><div className="mt-3 flex items-center gap-3 text-xs text-[var(--text-muted)]"><span>Frame interval</span><select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5"><option value="350">Fast · 350ms</option><option value="500">500ms</option><option value="700">700ms</option><option value="1000">Recommended · 1 sec</option><option value="1500">1.5 sec</option></select></div><p className="mt-3 text-center text-xs leading-5 text-[var(--text-muted)]">Keep this screen bright and steady. The stream loops automatically so missed frames can be captured on the next pass.</p></>:<div className="grid min-h-[520px] place-items-center text-center text-[var(--text-muted)]"><Radio size={36} className="mx-auto text-cyan-300"/><p className="mt-3 font-bold text-[var(--text)]">Transfer QR will appear here</p><p className="mt-1 text-sm">Choose a file to begin.</p></div>}</div>
+      <div ref={playerRef} className="glass-panel rounded-[28px] p-5">{qr?<><div className="rounded-[28px] bg-white p-5"><img src={qr} alt="OR Transfer high-speed QR grid" className="mx-auto max-h-[78vh] w-full max-w-[900px] object-contain" style={{imageRendering:'pixelated'}}/></div><div className="mt-4 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold">QR group {index+1} / {Math.ceil((plan?.total ?? 0)/OR_TRANSFER_GRID_SIZE)} · {OR_TRANSFER_GRID_SIZE} lanes</p><div className="flex flex-wrap gap-2"><button disabled={!plan} onClick={()=>setIndex(i=>Math.max(0,i-1))} className="rounded-full bg-white/10 px-4 py-2 text-sm">Prev</button><button disabled={!plan} onClick={()=>setIndex(i=>Math.min(Math.max(0,Math.ceil((plan?.total ?? 1)/OR_TRANSFER_GRID_SIZE)-1),i+1))} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">Next</button><button disabled={!plan || plan.total<2} onClick={()=>playing?stopPlayback():setPlaying(true)} className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">{playing?'Pause':'Play stream'}</button><button disabled={!plan} onClick={()=>fullscreen?void exitFullscreen():void enterFullscreen()} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">{fullscreen?'Exit full screen':'Full screen'}</button></div></div><div className="mt-3 flex items-center gap-3 text-xs text-[var(--text-muted)]"><span>Frame interval</span><select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5"><option value="120">Ultra · 120ms</option><option value="180">Fast · 180ms</option><option value="250">Recommended · 250ms</option><option value="350">Safe · 350ms</option><option value="500">Compatibility · 500ms</option></select></div><p className="mt-3 text-center text-xs leading-5 text-[var(--text-muted)]">High-speed mode shows four independent QR lanes at once. Keep the sender bright and steady; missed frames are recovered by the looping stream.</p></>:<div className="grid min-h-[520px] place-items-center text-center text-[var(--text-muted)]"><Radio size={36} className="mx-auto text-cyan-300"/><p className="mt-3 font-bold text-[var(--text)]">Transfer QR will appear here</p><p className="mt-1 text-sm">Choose a file to begin.</p></div>}</div>
     </div>:<div className="mt-5 glass-panel rounded-[28px] p-5">
       <div className="grid gap-5 lg:grid-cols-[1fr_.8fr]">
         <div className="overflow-hidden rounded-[24px] bg-black/20"><video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline/></div>
