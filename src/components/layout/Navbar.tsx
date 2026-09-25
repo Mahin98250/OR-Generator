@@ -29,8 +29,8 @@ export function Navbar() {
               <ScanSearch size={19} className="relative" />
             </span>
             <span className="hidden sm:block">
-              <span className="block text-sm font-bold tracking-tight text-[var(--text)]">OR-Generator</span>
-              <span className="block text-[10px] font-medium uppercase tracking-[.2em] text-[var(--text-muted)]">QR + Barcode Studio</span>
+              <span className="block text-sm font-bold tracking-tight text-[var(--text)]">OptiCode Studio</span>
+              <span className="block text-[10px] font-medium uppercase tracking-[.2em] text-[var(--text-muted)]">QR · Barcode · Optical</span>
             </span>
           </Link>
 
