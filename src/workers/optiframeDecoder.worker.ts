@@ -1,4 +1,4 @@
-import { decodeOptiFramePerspective } from '../lib/optiframe';
+import { decodeOptiFramePerspective, type OptiFramePerspectiveDiagnostics } from '../lib/optiframe';
 
 type Request = {
   id: number;
@@ -16,12 +16,7 @@ type Response = {
     total: number;
     payload: Uint8Array;
   };
-  diagnostics?: {
-    confidence: number;
-    sampleWidth: number;
-    sampleHeight: number;
-    decodeMs: number;
-  };
+  diagnostics?: OptiFramePerspectiveDiagnostics;
   error?: string;
 };
 
@@ -50,12 +45,7 @@ scope.onmessage = (event) => {
         total: result.frame.total,
         payload: new Uint8Array(payloadBuffer),
       },
-      diagnostics: {
-        confidence: result.diagnostics.confidence,
-        sampleWidth: result.diagnostics.sampleWidth,
-        sampleHeight: result.diagnostics.sampleHeight,
-        decodeMs: result.diagnostics.decodeMs,
-      },
+      diagnostics: result.diagnostics,
     }, [payloadBuffer]);
   } catch (error) {
     scope.postMessage({
