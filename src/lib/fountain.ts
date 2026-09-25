@@ -362,6 +362,13 @@ export function createFountainDecoder(
   const blockToEquations = new Map<number, Set<number>>();
   const solved = new Map<number, Uint8Array>();
   const seenSeeds = new Set<number>();
+  // Keep the Gaussian-elimination working set bounded. A sender can keep
+  // broadcasting after a receiver stalls, so retaining every unsolved
+  // equation forever would make memory usage grow with wall-clock time.
+  const maxBufferedEquations = Math.min(
+    16_384,
+    Math.max(512, Math.ceil(meta.blocks * 0.75)),
+  );
 
   function detach(seed: number, eq: Equation) {
     equations.delete(seed);
@@ -443,7 +450,10 @@ export function createFountainDecoder(
       if (eq.indexes.size === 1) {
         const index = [...eq.indexes][0];
         solve(index, eq.data);
-      } else {
+      } else if (
+        equations.size < maxBufferedEquations ||
+        eq.indexes.size <= 2
+      ) {
         equations.set(frame.seed, eq);
         for (const index of eq.indexes) {
           let set = blockToEquations.get(index);
