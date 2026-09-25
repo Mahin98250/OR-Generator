@@ -51,17 +51,20 @@ export function createOptiLaneSurface(
 
 export function cropOptiLaneGrid(source: ImageData, laneCount: OptiLaneCount) {
   const layout = getOptiLaneLayout(laneCount);
-  const laneWidth = Math.floor(source.width / layout.columns);
-  const laneHeight = Math.floor(source.height / layout.rows);
+  const gridSide = Math.min(source.width, source.height);
+  const gridX = Math.floor((source.width - gridSide) / 2);
+  const gridY = Math.floor((source.height - gridSide) / 2);
+  const laneWidth = Math.floor(gridSide / layout.columns);
+  const laneHeight = Math.floor(gridSide / layout.rows);
   if (laneWidth < OPTIFRAME_SIZE || laneHeight < OPTIFRAME_SIZE) return [];
 
   return Array.from({ length: laneCount }, (_, lane) => {
     const col = lane % layout.columns;
     const row = Math.floor(lane / layout.columns);
-    const x = col * laneWidth;
-    const y = row * laneHeight;
-    const width = col === layout.columns - 1 ? source.width - x : laneWidth;
-    const height = row === layout.rows - 1 ? source.height - y : laneHeight;
+    const x = gridX + col * laneWidth;
+    const y = gridY + row * laneHeight;
+    const width = col === layout.columns - 1 ? gridSide - col * laneWidth : laneWidth;
+    const height = row === layout.rows - 1 ? gridSide - row * laneHeight : laneHeight;
     const image = new ImageData(width, height);
     for (let line = 0; line < height; line += 1) {
       const sourceStart = ((y + line) * source.width + x) * 4;
