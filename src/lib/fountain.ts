@@ -122,9 +122,7 @@ export function isFountainFrame(value: string) { return value.startsWith(FOUNTAI
 export function parseFountainFrame(value: string): FountainDroplet | null {
   const p = value.split('|');
   if (p.length !== 10 || !isFountainFrame(value)) return null;
-  const [sessionRaw, mimeRaw, nameRaw, sizeRaw, blocksRaw, blockBytesRaw, seedRaw, degreeRaw, hashRaw, data] = [
-    p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9],
-  ];
+  const [sessionRaw, mimeRaw, nameRaw, sizeRaw, hashRaw, blocksRaw, blockBytesRaw, seedRaw, degreeRaw, data] = p;
   const session = sessionRaw.slice(FOUNTAIN_PREFIX.length);
   const size = Number(sizeRaw), blocks = Number(blocksRaw), blockBytes = Number(blockBytesRaw);
   const seed = Number(seedRaw), degree = Number(degreeRaw);
