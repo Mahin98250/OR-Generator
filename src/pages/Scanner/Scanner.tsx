@@ -57,7 +57,7 @@ export function Scanner() {
 
       <div className="mt-5 flex items-center gap-3 rounded-[24px] border border-[var(--border)] bg-[var(--bg-soft)] p-4 text-xs leading-5 text-[var(--text-muted)]">
         <Sparkles className="shrink-0 text-cyan-300" size={16} />
-        <span><strong className="text-[var(--text)]">Tip:</strong> Install OR-Generator as a PWA for a more app-like experience.</span>
+        <span><strong className="text-[var(--text)]">Tip:</strong> Install OptiCode Studio as a PWA for a more app-like experience.</span>
       </div>
     </section>
   );
