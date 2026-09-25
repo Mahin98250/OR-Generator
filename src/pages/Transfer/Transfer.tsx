@@ -4,9 +4,10 @@ import { Link } from 'react-router-dom';
 import { QrDecodePool } from '../../lib/qrDecodePool';
 import { createBenchmarkStart, finishBenchmark, type BenchmarkSample, type OpticalBenchmark } from '../../lib/opticalBenchmark';
 import { OR_TRANSFER_GRID_SIZE, addTransferFrame, createTransfer, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
-import { drawQrGrid, drawQrMatricesGrid } from '../../lib/qrCanvas';
+import { createQrMatrices, drawQrMatricesToCanvas } from '../../lib/qrCanvas';
 import { QrEncodePool, type QrEncodeResult } from '../../lib/qrEncodePool';
 import { createFountainDecoder, createFountainTransfer, FOUNTAIN_BLOCK_BYTES, FOUNTAIN_GRID_SIZE, isFountainFrame, parseFountainFrame, type FountainDecoder, type FountainDroplet, type FountainPlan } from '../../lib/fountain';
+import type { QrMatrix } from '../../lib/qrEncodePool';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
 type DetectorCtor = new (options?:{formats?:string[]}) => Detector;
@@ -59,7 +60,8 @@ export function Transfer() {
   const playbackRafRef=useRef<number|null>(null);
   const playbackLastAtRef=useRef(0);
   const qrEncoderRef=useRef<QrEncodePool|null>(null);
-  const renderCacheRef=useRef<Map<string,{image:string;renderMs:number;encodeMs:number}>>(new Map());
+  const qrCanvasRef=useRef<HTMLCanvasElement|null>(null);
+  const renderCacheRef=useRef<Map<string,{matrices:QrMatrix[];renderMs:number;encodeMs:number}>>(new Map());
   const renderEpochRef=useRef(0);
   const renderWindowStatsRef=useRef({started:0,count:0,renderMs:0});
   const fountainDecoderRef=useRef<FountainDecoder|null>(null);
@@ -157,16 +159,16 @@ export function Transfer() {
 
     const encoder=qrEncoderRef.current;
     let encodeStats:QrEncodeResult|null=null;
-    let image='';
+    let matrices:QrMatrix[];
     if(encoder && encoder.capacity>0){
       encodeStats=await encoder.encode(values);
-      image=drawQrMatricesGrid(encodeStats.matrices,900,14);
+      matrices=encodeStats.matrices;
     }else{
-      image=drawQrGrid(values,900,14);
+      matrices=createQrMatrices(values);
     }
 
     const renderMs=performance.now()-renderStart;
-    const entry={image,renderMs,encodeMs:encodeStats?.encodeMs ?? 0};
+    const entry={matrices,renderMs,encodeMs:encodeStats?.encodeMs ?? 0};
     renderCacheRef.current.delete(key);
     renderCacheRef.current.set(key,entry);
     while(renderCacheRef.current.size>6){
@@ -180,7 +182,7 @@ export function Transfer() {
   useEffect(()=>{
     let cancelled=false;
     const plan=fountain ?? compat;
-    if(!plan){ setQr(''); clearRenderPipeline(); return; }
+    if(!plan){ clearRenderPipeline(); return; }
 
     const epoch=++renderEpochRef.current;
     const fountainMode=Boolean(fountain);
@@ -195,7 +197,7 @@ export function Transfer() {
         if(cancelled || epoch!==renderEpochRef.current)return;
         if(display){
           renderCountRef.current+=1;
-          setQr(entry.image);
+          if(qrCanvasRef.current) drawQrMatricesToCanvas(qrCanvasRef.current,entry.matrices,900,14);
           const now=performance.now();
           if(renderWindowStatsRef.current.started===0)renderWindowStatsRef.current.started=now;
           renderWindowStatsRef.current.count+=1;
@@ -480,7 +482,7 @@ export function Transfer() {
       </div>
       <div className="glass-panel rounded-[28px] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">Live optical stream</p><p className="mt-1 text-sm text-[var(--text-muted)]">{fountain?'Fountain droplets · systematic + random recovery lanes':compat?'Sequential compatibility stream':'Choose a file to begin'}</p></div>{(fountain||compat)&&<button onClick={()=>setPlaying(v=>!v)} className="rounded-full bg-white px-4 py-2 text-xs font-black text-slate-950">{playing?'Pause':'Start stream'}</button>}</div>
-        {qr?<img src={qr} alt="OptiTransfer QR stream" className="mx-auto mt-5 aspect-square w-full max-w-[620px] rounded-2xl bg-white p-2"/>:<div className="mt-5 grid aspect-square place-items-center rounded-2xl bg-black/20 text-sm text-[var(--text-muted)]">QR stream preview</div>}
+        {(fountain||compat)?<canvas ref={qrCanvasRef} width={900} height={900} aria-label="OptiTransfer QR stream" className="mx-auto mt-5 aspect-square w-full max-w-[620px] rounded-2xl bg-white p-2"/>:<div className="mt-5 grid aspect-square place-items-center rounded-2xl bg-black/20 text-sm text-[var(--text-muted)]">QR stream preview</div>}
         {(fountain||compat)&&<div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Auto tune<select value={autoTune?'on':'off'} onChange={e=>setAutoTune(e.target.value==='on')} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="on">On · render-safe</option><option value="off">Off · manual</option></select></label><label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Speed<select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="16">16 ms · 60 Hz extreme</option><option value="24">24 ms · ultra</option><option value="32">32 ms · high</option><option value="60">60 ms · fast</option><option value="80">80 ms · very fast</option><option value="100">100 ms · balanced</option><option value="150">150 ms · safe</option><option value="250">250 ms · compatibility</option></select></label><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Engine</b><p className="mt-1 text-[var(--text-muted)]">{telemetry.encoderWorkers>0?telemetry.encoderWorkers+' worker encoder':'main-thread fallback'} · {telemetry.prefetchReady}/4 groups ready</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Render</b><p className="mt-1 text-[var(--text-muted)]">{telemetry.renderMs.toFixed(1)} ms · QR encode {telemetry.encodeMs.toFixed(1)} ms</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Payload</b><p className="mt-1 text-[var(--text-muted)]">{fountain?FOUNTAIN_BLOCK_BYTES+' bytes/block':'~1875 bytes/frame'}</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Lanes</b><p className="mt-1 text-[var(--text-muted)]">4 QR codes</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Recovery</b><p className="mt-1 text-[var(--text-muted)]">{fountain?'Fountain':'Sequential'}</p></div></div>}
       </div>
