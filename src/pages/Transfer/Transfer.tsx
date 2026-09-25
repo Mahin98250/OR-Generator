@@ -37,7 +37,6 @@ export function Transfer() {
   const [fountain,setFountain]=useState<FountainPlan|null>(null);
   const [compat,setCompat]=useState<Awaited<ReturnType<typeof createTransfer>>|null>(null);
   const [group,setGroup]=useState(0);
-  const [qr,setQr]=useState('');
   const [playing,setPlaying]=useState(false);
   const [intervalMs,setIntervalMs]=useState(32);
   const [error,setError]=useState('');
@@ -278,7 +277,7 @@ export function Transfer() {
         const plan=await createTransfer(value); setCompat(plan); setFountain(null);
       }
       setFile(value);
-    }catch(e){setFile(null);setFountain(null);setCompat(null);setQr('');setError(e instanceof Error?e.message:'Unable to prepare this file.');}
+    }catch(e){setFile(null);setFountain(null);setCompat(null);setError(e instanceof Error?e.message:'Unable to prepare this file.');}
   }
 
   async function finishBenchmarkRun(){
