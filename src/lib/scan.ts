@@ -9,6 +9,7 @@ export type ScanKind =
   | 'calendar'
   | 'isbn'
   | 'barcode'
+  | 'image'
   | 'text';
 
 export type ScanAnalysis = {
@@ -37,6 +38,8 @@ export function analyzeScan(value: string, format = ''): ScanAnalysis {
   const raw = clean(value);
   const upper = raw.toUpperCase();
   const normalizedFormat = format.toLowerCase();
+
+  if (raw.startsWith('ORIMG1:data:image/')) return { kind: 'image', title: 'Image QR', subtitle: 'A photo is embedded in this QR code.', value: raw, meta: { Type: 'Compressed image', Storage: 'Inside QR code' } };
 
   if (upper.startsWith('WIFI:')) {
     const body = raw.slice(5);

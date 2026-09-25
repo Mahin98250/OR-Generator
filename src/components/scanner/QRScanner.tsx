@@ -22,6 +22,7 @@ import {
 import { GlassButton } from '../ui/GlassButton';
 import { saveHistoryItem } from '../../lib/storage';
 import { analyzeScan, type ScanAnalysis } from '../../lib/scan';
+import { decodeImageQr, isImageQr } from '../../lib/imageQr';
 
 type ScanMode = 'auto' | 'qr' | 'barcode';
 
@@ -100,6 +101,7 @@ export function QRScanner() {
   const [supportedFormats, setSupportedFormats] = useState<string[]>([]);
   const [analysis, setAnalysis] = useState<ScanAnalysis | null>(null);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+  const [imageResult, setImageResult] = useState('');
 
   useEffect(() => () => stopCamera(), []);
 
@@ -168,6 +170,7 @@ export function QRScanner() {
     setError('');
     setResult('');
     setAnalysis(null);
+    setImageResult('');
     stopCamera();
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -282,6 +285,8 @@ export function QRScanner() {
     setResult(value);
     setFormat(displayFormat);
     setAnalysis(nextAnalysis);
+    const imageData = decodeImageQr(value);
+    setImageResult(imageData || '');
     saveHistoryItem(value, { format: displayFormat, kind: nextAnalysis.kind, title: nextAnalysis.title });
     stopCamera();
   }
@@ -593,6 +598,7 @@ export function QRScanner() {
               )}
             </div>
           )}
+          {imageResult && isImageQr(result) && <div className="mt-3 rounded-2xl border border-cyan-300/20 bg-black/20 p-3 text-center"><img src={imageResult} alt="Image reconstructed from QR" className="mx-auto max-h-[520px] w-auto rounded-xl object-contain" /><p className="mt-2 text-xs text-[var(--text-muted)]">Image reconstructed locally from the QR payload.</p><a href={imageResult} download="qr-image.jpg" className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950"><Save size={14}/> Save image</a></div>}
           <p className="mt-3 break-words rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4 text-sm leading-6 text-[var(--text)]">{result}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <GlassButton onClick={() => void copyResult()}><Clipboard size={15} /> Copy</GlassButton>
