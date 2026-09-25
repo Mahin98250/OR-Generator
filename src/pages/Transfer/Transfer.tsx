@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Download, FileUp, Gauge, LockKeyhole, Radio, ScanLine, ShieldCheck, WifiOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import { OR_TRANSFER_GRID_SIZE, addTransferFrame, createTransfer, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
+import { drawQrGrid } from '../../lib/qrCanvas';
 import { createFountainDecoder, createFountainTransfer, FOUNTAIN_BLOCK_BYTES, FOUNTAIN_GRID_SIZE, isFountainFrame, parseFountainFrame, type FountainDecoder, type FountainDroplet, type FountainPlan } from '../../lib/fountain';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
@@ -50,26 +50,24 @@ export function Transfer() {
     const plan=fountain ?? compat;
     if(!plan){ setQr(''); return; }
     const grid=fountain ? FOUNTAIN_GRID_SIZE : OR_TRANSFER_GRID_SIZE;
-    const totalGroups=fountain ? Math.max(1,Math.ceil(fountain.recommended/grid)) : Math.max(1,Math.ceil(compat!.total/grid));
+    const totalGroups=fountain ? Math.max(1,Math.ceil(fountain.recommended/grid)) : Math.max(1,Math.ceil((compat?.total ?? 1)/grid));
     const current=group%totalGroups;
-    const jobs=Array.from({length:grid},async(_,lane)=>{
-      if(fountain) return fountain.getDroplet(lane);
-      const index=current*grid+lane+1;
-      if(!compat || index>compat.total) return null;
-      return compat.getFrame(index);
-    });
-    void Promise.all(jobs).then(async frames=>{
-      if(cancelled) return;
-      const urls=await Promise.all(frames.filter(Boolean).map(raw=>QRCode.toDataURL(raw!,{width:fountain?400:430,margin:2,errorCorrectionLevel:'L'})));
-      const size=900, cell=fountain?430:430, gap=15;
-      const canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
-      const ctx=canvas.getContext('2d'); if(!ctx) throw new Error('Canvas unavailable.');
-      ctx.fillStyle='#fff'; ctx.fillRect(0,0,size,size);
-      await Promise.all(urls.map((url,i)=>new Promise<void>((resolve,reject)=>{
-        const image=new Image(); image.onload=()=>{ const x=(i%2)*445+gap, y=Math.floor(i/2)*445+gap; ctx.drawImage(image,x,y,cell,cell); resolve(); }; image.onerror=()=>reject(new Error('QR render failed.')); image.src=url;
-      })));
-      if(!cancelled) setQr(canvas.toDataURL('image/png'));
-    }).catch(e=>{ if(!cancelled) setError(e instanceof Error?e.message:'Unable to render the transfer stream.'); });
+    void (async()=>{
+      try{
+        const values:string[]=[];
+        for(let lane=0;lane<grid;lane+=1){
+          if(fountain) values.push(await fountain.getDroplet(lane));
+          else{
+            const index=current*grid+lane+1;
+            if(compat && index<=compat.total) values.push(await compat.getFrame(index));
+          }
+        }
+        if(cancelled)return;
+        setQr(drawQrGrid(values,900,14));
+      }catch(e){
+        if(!cancelled)setError(e instanceof Error?e.message:'Unable to render the transfer stream.');
+      }
+    })();
     return()=>{cancelled=true;};
   },[fountain,compat,group]);
 
