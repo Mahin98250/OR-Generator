@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, CameraOff, CheckCircle2, Copy, Download, FlaskConical, Pause, Play, RotateCcw, ScanLine, Upload, Zap } from 'lucide-react';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { GlassButton } from '../../components/ui/GlassButton';
-import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, OPTIFRAME_SIZE, type OptiFramePerspectiveDiagnostics } from '../../lib/optiframe';
+import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, inspectOptiFrameAcquisition, OPTIFRAME_SIZE, type OptiFrameAcquisitionDiagnostics, type OptiFramePerspectiveDiagnostics } from '../../lib/optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from '../../lib/optiframeStream';
 import { OptiFrameDecodePool } from '../../lib/optiframeDecodePool';
 import { createOptiLaneSurface, cropOptiLaneGrid, type OptiLaneCount } from '../../lib/optiframeLanes';
@@ -22,6 +22,7 @@ type CameraStats = {
   lastConfidence: number;
   cameraWidth: number;
   cameraHeight: number;
+  cameraFrameRate: number;
   startedAt: number | null;
 };
 
@@ -36,7 +37,9 @@ export function OptiFrameLab() {
   const [cameraError, setCameraError] = useState('');
   const [cameraDecoded, setCameraDecoded] = useState('');
   const [receiver, setReceiver] = useState({ total: 0, received: 0, bytes: 0, missing: [] as number[], complete: false });
-  const [cameraStats, setCameraStats] = useState<CameraStats>({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0, cameraWidth: 0, cameraHeight: 0, startedAt: null });
+  const [cameraStats, setCameraStats] = useState<CameraStats>({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0, cameraWidth: 0, cameraHeight: 0, cameraFrameRate: 0, startedAt: null });
+  const [acquisition, setAcquisition] = useState<OptiFrameAcquisitionDiagnostics>({ stage: 'image', anchors: [], confidence: 0, moduleScale: 0, angle: 0, geometryRatio: 0, sampleWidth: 0, sampleHeight: 0, elapsedMs: 0 });
+  const [cameraCapabilities, setCameraCapabilities] = useState<string[]>([]);
   const [streamPlaying, setStreamPlaying] = useState(false);
   const [streamIndex, setStreamIndex] = useState(0);
   const [laneCount, setLaneCount] = useState<OptiLaneCount>(1);
@@ -54,6 +57,7 @@ export function OptiFrameLab() {
   const seenSequenceRef = useRef(new Set<number>());
   const trackedAnchorsRef = useRef<OptiFramePerspectiveDiagnostics['anchors'] | null>(null);
   const framesSinceFullScanRef = useRef(0);
+  const acquisitionFailureRef = useRef(0);
   const reacquireEveryFrames = 12;
 
   const streamPayload = useMemo(() => {
@@ -455,7 +459,9 @@ export function OptiFrameLab() {
     framesSinceFullScanRef.current = 0;
     setReceiver({ total: 0, received: 0, bytes: 0, missing: [], complete: false });
     setCameraDecoded('');
-    setCameraStats({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0, cameraWidth: 0, cameraHeight: 0, startedAt: performance.now() });
+    setAcquisition({ stage: 'searching', anchors: [], confidence: 0, moduleScale: 0, angle: 0, geometryRatio: 0, sampleWidth: 0, sampleHeight: 0, elapsedMs: 0 });
+    acquisitionFailureRef.current = 0;
+    setCameraStats({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0, cameraWidth: 0, cameraHeight: 0, cameraFrameRate: 0, startedAt: performance.now() });
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -469,12 +475,11 @@ export function OptiFrameLab() {
         audio: false,
       });
       streamRef.current = stream;
-      const settings = stream.getVideoTracks()[0]?.getSettings();
-      setCameraStats(prev => ({
-        ...prev,
-        cameraWidth: settings?.width ?? 0,
-        cameraHeight: settings?.height ?? 0,
-      }));
+      const track = stream.getVideoTracks()[0];
+      const settings = track?.getSettings();
+      const capabilities = track?.getCapabilities?.();
+      setCameraCapabilities(capabilities ? Object.keys(capabilities).filter(key => ['width','height','frameRate','focusMode','zoom','torch','resizeMode'].includes(key)) : []);
+      setCameraStats(prev => ({ ...prev, cameraWidth: settings?.width ?? 0, cameraHeight: settings?.height ?? 0, cameraFrameRate: settings?.frameRate ?? 0 }));
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
@@ -586,11 +591,27 @@ export function OptiFrameLab() {
             <div className="relative min-h-[460px] aspect-video sm:min-h-[560px] lg:min-h-[620px]">
               <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
               {!cameraOn && <div className="absolute inset-0 grid place-items-center bg-black/55"><div className="text-center"><ScanLine size={28} className="mx-auto text-white/70"/><p className="mt-3 text-sm font-bold text-white">Point the camera at an OptiFrame</p><p className="mt-1 text-xs text-white/50">Keep all four finder anchors visible.</p></div></div>}
+              {cameraOn && acquisition.anchors.length > 0 && (
+                <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={"0 0 " + Math.max(1, acquisition.sampleWidth) + " " + Math.max(1, acquisition.sampleHeight)} preserveAspectRatio="none">
+                  {acquisition.anchors.length >= 2 && <polyline points={acquisition.anchors.map(anchor => anchor.x + "," + anchor.y).join(" ")} fill="none" stroke="rgba(34,211,238,.9)" strokeWidth={Math.max(2, acquisition.moduleScale * 0.7)} />}
+                  {acquisition.anchors.map((anchor, index) => <g key={index}><circle cx={anchor.x} cy={anchor.y} r={Math.max(6, acquisition.moduleScale * 1.6)} fill="rgba(34,211,238,.16)" stroke="white" strokeWidth="2"/><text x={anchor.x + 10} y={anchor.y - 10} fill="white" fontSize={Math.max(12, acquisition.moduleScale * 1.4)} fontWeight="800">{['TL','TR','BL','BR'][index]} {Math.round(anchor.score * 100)}%</text></g>)}
+                </svg>
+              )}
               {cameraOn && <div className="pointer-events-none absolute inset-[5%] rounded-[28px] border-2 border-cyan-300/70 shadow-[0_0_0_999px_rgba(0,0,0,.16),0_0_32px_rgba(34,211,238,.2)]"><div className="absolute inset-4 border border-white/15"/></div>}
             </div>
           </div>
           {cameraError && <div className="mt-3 rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-xs leading-6 text-rose-100">{cameraError}</div>}
           {cameraOn && cameraStats.cameraWidth > 0 && cameraStats.cameraWidth < 960 && <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-xs leading-6 text-amber-100">The browser supplied a {cameraStats.cameraWidth}×{cameraStats.cameraHeight} camera stream. The detector prefers a higher-resolution feed because more camera pixels per optical module generally gives it more information; this browser did not provide the preferred target.</div>}
+          <div className="mt-4 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4">
+            <div className="flex items-center justify-between gap-3"><p className="text-xs font-black uppercase tracking-[.14em] text-cyan-200">Acquisition diagnostics</p><span className="rounded-full border border-cyan-300/20 px-2 py-1 text-[10px] font-black text-cyan-200">{acquisition.stage.toUpperCase()}</span></div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div><p className="text-[10px] text-[var(--text-muted)]">Anchors</p><p className="text-sm font-black text-[var(--text)]">{acquisition.anchors.length}/4</p></div>
+              <div><p className="text-[10px] text-[var(--text-muted)]">Confidence</p><p className="text-sm font-black text-[var(--text)]">{Math.round(acquisition.confidence * 100)}%</p></div>
+              <div><p className="text-[10px] text-[var(--text-muted)]">Module scale</p><p className="text-sm font-black text-[var(--text)]">{acquisition.moduleScale ? acquisition.moduleScale.toFixed(1) : '—'} px</p></div>
+              <div><p className="text-[10px] text-[var(--text-muted)]">Angle</p><p className="text-sm font-black text-[var(--text)]">{acquisition.angle.toFixed(1)}°</p></div>
+            </div>
+            <p className="mt-3 text-[10px] leading-5 text-[var(--text-muted)]">Sample {acquisition.sampleWidth || '—'}×{acquisition.sampleHeight || '—'} · acquisition {acquisition.elapsedMs.toFixed(0)} ms · camera {cameraStats.cameraFrameRate ? cameraStats.cameraFrameRate.toFixed(1) + ' FPS' : 'FPS unavailable'} · capabilities: {cameraCapabilities.length ? cameraCapabilities.join(', ') : 'not exposed'}</p>
+          </div>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Attempts</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.attempts}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decoded</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.hits}</p></div>
