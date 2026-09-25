@@ -56,6 +56,7 @@ export function Transfer() {
   const receiverStartedRef=useRef<number|null>(null);
   const detectedWindowRef=useRef({started:0,count:0});
   const solvedRef=useRef(0);
+  const decodedBytesRef=useRef(0);
   const duplicateCountRef=useRef(0);
   const lastTelemetryRef=useRef(0);
   const scanDelayRef=useRef(55);
@@ -119,7 +120,7 @@ export function Transfer() {
 
   async function choose(value?:File){
     if(!value)return;
-    setError(''); setResult(null); stopPlayback(); setGroup(0); resetDecoder(); receiverStartedRef.current=null; solvedRef.current=0; duplicateCountRef.current=0; detectedWindowRef.current={started:0,count:0}; renderWindowRef.current={started:0,count:0};
+    setError(''); setResult(null); stopPlayback(); setGroup(0); resetDecoder(); receiverStartedRef.current=null; solvedRef.current=0; decodedBytesRef.current=0; duplicateCountRef.current=0; detectedWindowRef.current={started:0,count:0}; renderWindowRef.current={started:0,count:0};
     try{
       if(mode==='fountain'){
         const plan=await createFountainTransfer(value); setFountain(plan); setCompat(null);
@@ -151,6 +152,7 @@ export function Transfer() {
       const d=fountainDecoderRef.current.add(frame);
       if(d.duplicate)duplicateCountRef.current+=1;
       solvedRef.current=d.solved;
+      decodedBytesRef.current=Math.min(frame.size,d.solved*frame.blockBytes);
       setProgress({mode:'fountain',session:frame.session,name:frame.name,received:d.solved,total:frame.blocks,duplicates:duplicateCountRef.current});
       if(d.complete){
         const rebuilt=await fountainDecoderRef.current.reconstruct();
@@ -165,6 +167,7 @@ export function Transfer() {
       const frame=parseTransferFrame(value); if(!frame)return;
       const added=await addTransferFrame(frame);
       if(added.duplicate)duplicateCountRef.current+=1;
+      decodedBytesRef.current=Math.min(frame.size,Math.round((added.received/added.total)*frame.size));
       setProgress(prev=>({mode:'compatibility',session:frame.session,name:frame.name,received:added.received,total:added.total,duplicates:duplicateCountRef.current}));
       if(added.complete){
         const rebuilt=await reconstructTransfer(frame.session);
@@ -193,7 +196,7 @@ export function Transfer() {
       const detectedPerSecond=detectedWindowRef.current.count/seconds;
       const elapsed=Math.max(0.001,(now-(receiverStartedRef.current ?? now))/1000);
       const solvedPerSecond=solvedRef.current/elapsed;
-      const goodputKbps=(solvedRef.current*FOUNTAIN_BLOCK_BYTES/1024)/elapsed;
+      const goodputKbps=(decodedBytesRef.current/1024)/elapsed;
       setTelemetry(prev=>({...prev,startedAt:receiverStartedRef.current,detectedPerSecond,solvedPerSecond,goodputKbps,duplicates:duplicateCountRef.current,decodeMs:prev.decodeMs===0?decodeMs:prev.decodeMs*0.7+decodeMs*0.3,scanDelayMs:scanDelayRef.current}));
       detectedWindowRef.current={started:now,count:0};
     }
@@ -272,9 +275,9 @@ export function Transfer() {
       <div className="glass-panel overflow-hidden rounded-[28px] p-4"><video ref={videoRef} muted playsInline className="aspect-video w-full rounded-2xl bg-black object-cover"/><div className="mt-3 flex flex-wrap gap-2"><button onClick={()=>{if(receiving)stopReceive();else void startReceive();}} className="rounded-full bg-white px-4 py-2 text-sm font-black text-slate-950">{receiving?'Stop receiver':'Start receiver'}</button><span className="rounded-full bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300">{receiving?'Scanning 4 QR lanes':'Camera idle'}</span></div></div>
       <div className="glass-panel rounded-[28px] p-5"><LockKeyhole size={20} className="text-cyan-300"/><p className="mt-3 font-bold">Loss-tolerant receiver</p><p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">Start the receiver before or after the sender. Fountain mode does not require frame 1, frame 2, frame 3… in order.</p><div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-2xl bg-cyan-300/[.06] p-3"><Activity size={16} className="text-cyan-300"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Decode</p><p className="mt-1 text-sm font-black">{telemetry.detectedPerSecond.toFixed(1)}/s</p></div>
-          <div className="rounded-2xl bg-cyan-300/[.06] p-3"><Zap size={16} className="text-cyan-300"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Goodput</p><p className="mt-1 text-sm font-black">{telemetry.goodputKbps.toFixed(1)} KB/s</p></div>
+          <div className="rounded-2xl bg-cyan-300/[.06] p-3"><Zap size={16} className="text-cyan-300"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Goodput</p><p className="mt-1 text-sm font-black">{telemetry.goodputKbps.toFixed(1)} KB/s</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{(telemetry.goodputKbps/1024).toFixed(2)} MB/s</p></div>
           <div className="rounded-2xl bg-white/5 p-3"><TimerReset size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Detector</p><p className="mt-1 text-sm font-black">{telemetry.decodeMs.toFixed(0)} ms</p></div>
-          <div className="rounded-2xl bg-white/5 p-3"><Gauge size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Scan cadence</p><p className="mt-1 text-sm font-black">{Math.round(telemetry.scanDelayMs)} ms</p></div>
+          <div className="rounded-2xl bg-white/5 p-3"><Gauge size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Scan cadence</p><p className="mt-1 text-sm font-black">{Math.round(telemetry.scanDelayMs)} ms</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{telemetry.duplicates} duplicates</p></div>
         </div>
         {progress&&<div className="mt-5 rounded-2xl bg-white/5 p-4"><p className="truncate text-sm font-bold">{progress.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{progress.mode==='fountain'?`${progress.received.toLocaleString()} unique droplets · ${progress.total.toLocaleString()} source blocks`:`${progress.received} / ${progress.total} frames`}</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100,Math.round(progress.received/progress.total*100))}%`}}/></div></div>}{result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><CheckCircle2 className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}{error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}</div>
     </div>}
