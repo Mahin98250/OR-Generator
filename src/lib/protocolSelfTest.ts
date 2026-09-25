@@ -397,6 +397,22 @@ async function optiFrameWorkerDiagnostic() {
   }
 }
 
+async function optiFrameWorkerFallbackDiagnostic() {
+  const pool = new OptiFrameDecodePool(0, true);
+  try {
+    const results = await pool.decodeBatch([{
+      buffer: new ArrayBuffer(0),
+      width: 1,
+      height: 1,
+    }]);
+    assert(results.length === 1 && results[0] === null, 'Zero-worker decode batch did not return a safe fallback result.');
+    assert(pool.capacity === 0 && pool.busyCount === 0 && !pool.available, 'Zero-worker pool telemetry is inconsistent.');
+    return 'Zero-worker batch returns immediately; no receiver deadlock';
+  } finally {
+    pool.terminate();
+  }
+}
+
 async function optiFrameMultiLaneRoundTrip() {
   const payloads = Array.from({ length: 4 }, (_, lane) =>
     new TextEncoder().encode('OptiCode lane ' + lane + ' · '.repeat(40)),
@@ -573,6 +589,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('Performance · QR encoder worker', qrEncoderWorkerDiagnostic),
     runCase('OptiFrame · custom codec round trip', async () => { const r = optiFrameSelfTest(); return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified'; }),
     runCase('OptiFrame · worker perspective decode', optiFrameWorkerDiagnostic),
+    runCase('OptiFrame · zero-worker fallback', optiFrameWorkerFallbackDiagnostic),
     runCase('OptiFrame · multi-frame reassembly', optiFrameStreamReassembly),
     runCase('OptiFrame · multi-lane round trip', optiFrameMultiLaneRoundTrip),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
