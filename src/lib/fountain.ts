@@ -1,6 +1,6 @@
 const FOUNTAIN_PREFIX = 'ORF1:';
 
-export const FOUNTAIN_BLOCK_BYTES = 1400;
+export const FOUNTAIN_BLOCK_BYTES = 1750;
 export const FOUNTAIN_GRID_SIZE = 4;
 export const FOUNTAIN_MAX_FILE_SIZE = 64 * 1024 * 1024;
 export const FOUNTAIN_OVERHEAD = 0.18;
@@ -63,19 +63,19 @@ function rng(seed: number) {
 function degreeFor(seed: number, blocks: number) {
   const r = rng(seed);
   const u = r();
-  // Practical LT distribution: many singleton/low-degree droplets, with a
-  // long tail for connectivity. The decoder is peeling-based.
   if (blocks <= 2) return 1;
-  if (u < 0.18) return 1;
-  if (u < 0.48) return Math.min(2, blocks);
-  if (u < 0.72) return Math.min(3, blocks);
-  if (u < 0.86) return Math.min(4, blocks);
-  if (u < 0.94) return Math.min(6, blocks);
-  if (u < 0.98) return Math.min(10, blocks);
-  return Math.min(20, blocks);
+  if (u < 0.22) return 1;
+  if (u < 0.50) return 2;
+  if (u < 0.70) return 3;
+  if (u < 0.82) return 4;
+  if (u < 0.90) return 6;
+  if (u < 0.95) return 10;
+  if (u < 0.985) return 20;
+  return Math.min(40, blocks);
 }
 
 function indexesFor(seed: number, blocks: number, degree: number) {
+  if (degree === 1 && (seed >>> 0) >= 0x80000000) return [seed & 0x7fffffff];
   const random = rng(seed);
   const chosen = new Set<number>();
   while (chosen.size < degree) chosen.add(Math.floor(random() * blocks));
@@ -107,9 +107,11 @@ export async function createFountainTransfer(file: File): Promise<FountainPlan> 
     session, hash, name: file.name, mime: file.type || 'application/octet-stream',
     size: file.size, blocks, blockBytes: FOUNTAIN_BLOCK_BYTES, recommended,
     getDroplet: async (lane = 0) => {
-      const seed = (Math.floor(Math.random() * 0xffffffff) ^ (lane * 0x9e3779b9)) >>> 0;
-      const degree = degreeFor(seed, blocks);
-      const indexes = indexesFor(seed, blocks, degree);
+      const systematic = lane < 2;
+      const target = (Math.floor(Math.random() * blocks)) >>> 0;
+      const seed = systematic ? ((0x80000000 | target) >>> 0) : ((Math.floor(Math.random() * 0x7fffffff) ^ (lane * 0x45d9f3b)) >>> 0);
+      const degree = systematic ? 1 : degreeFor(seed, blocks);
+      const indexes = systematic ? [target] : indexesFor(seed, blocks, degree);
       const payload = new Uint8Array(FOUNTAIN_BLOCK_BYTES);
       for (const index of indexes) xorInto(payload, source[index]);
       return [FOUNTAIN_PREFIX + session, mime, encodedName, file.size, hash, blocks, FOUNTAIN_BLOCK_BYTES, seed, degree, b64(payload)].join('|');
