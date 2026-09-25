@@ -67,28 +67,38 @@ export async function createTransfer(file: File) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const hash = await sha256(bytes);
   const session = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-  const encoded = toBase64(bytes);
-  const total = Math.max(1, Math.ceil(encoded.length / OR_TRANSFER_CHUNK_CHARS));
+
+  // 900 raw bytes become exactly 1200 base64 characters. Generating a
+  // frame on demand avoids holding every QR payload in memory at once.
+  const bytesPerFrame = (OR_TRANSFER_CHUNK_CHARS / 4) * 3;
+  const total = Math.max(1, Math.ceil(file.size / bytesPerFrame));
 
   if (total > MAX_TRANSFER_FRAMES) {
     throw new Error('This file would require too many QR frames. Choose a smaller file.');
   }
 
-  const name = encodeName(file.name);
+  const encodedName = encodeName(file.name);
   const mime = encodeURIComponent(file.type || 'application/octet-stream');
-
-  const frames = Array.from({ length: total }, (_, i) =>
-    `${OR_TRANSFER_PREFIX}${session}|${mime}|${name}|${file.size}|${hash}|${i + 1}|${total}|${encoded.slice(i * OR_TRANSFER_CHUNK_CHARS, (i + 1) * OR_TRANSFER_CHUNK_CHARS)}`
-  );
 
   return {
     session,
     hash,
     name: file.name,
     mime: file.type || 'application/octet-stream',
-    size:file.size,
+    size: file.size,
     total,
-    frames,
+    getFrame: async (index: number) => {
+      if (!Number.isInteger(index) || index < 1 || index > total) {
+        throw new Error('Transfer frame index is out of range.');
+      }
+
+      const start = (index - 1) * bytesPerFrame;
+      const end = Math.min(file.size, start + bytesPerFrame);
+      const chunk = new Uint8Array(await file.slice(start, end).arrayBuffer());
+      const encoded = toBase64(chunk);
+
+      return `${OR_TRANSFER_PREFIX}${session}|${mime}|${encodedName}|${file.size}|${hash}|${index}|${total}|${encoded}`;
+    },
   };
 }
 
