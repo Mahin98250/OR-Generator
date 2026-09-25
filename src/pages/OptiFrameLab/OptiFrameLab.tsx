@@ -228,22 +228,38 @@ export function OptiFrameLab() {
 
     if (laneCount > 1) {
       const lanes = cropOptiLaneGrid(image, laneCount);
-      const laneResults = await Promise.all(lanes.map(async lane => {
-        const worker = await runWorker(lane.image);
-        const result = worker.result
-          ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics }
+      if (lanes.length !== laneCount) {
+        setCameraStats(prev => ({ ...prev, attempts: prev.attempts + 1, dropped: prev.dropped + laneCount }));
+        return;
+      }
+
+      // Queue the entire lane set through the bounded worker scheduler.
+      // This prevents lanes from being discarded just because the pool has
+      // fewer workers than the selected optical grid.
+      const workerResults = await decodePoolRef.current.decodeBatch(
+        lanes.map(lane => ({
+          buffer: lane.image.data.buffer.slice(0),
+          width: lane.image.width,
+          height: lane.image.height,
+        })),
+      );
+
+      const laneResults = lanes.map((lane, index) => {
+        const worker = workerResults[index] ?? null;
+        const result = worker
+          ? { frame: worker.frame, diagnostics: worker.diagnostics }
           : runLocal(lane.image);
-        return { lane, result, worker: worker.result, dropped: worker.dropped };
-      }));
+        return { lane, result, worker };
+      });
       const successes = laneResults.filter(entry => entry.result);
       const elapsed = performance.now() - captureStarted;
-      const droppedLanes = laneResults.filter(entry => entry.dropped).length;
+      const failedLanes = laneResults.length - successes.length;
 
       if (successes.length === 0) {
         setCameraStats(prev => ({
           ...prev,
           attempts: prev.attempts + 1,
-          dropped: prev.dropped + droppedLanes,
+          dropped: prev.dropped + failedLanes,
           lastMs: elapsed,
         }));
         return;
@@ -284,7 +300,7 @@ export function OptiFrameLab() {
         duplicates: prev.duplicates + duplicateCount,
         workerHits: prev.workerHits + workerCount,
         localHits: prev.localHits + localCount,
-        dropped: prev.dropped + droppedLanes,
+        dropped: prev.dropped + failedLanes,
         lastMs: elapsed,
         captureFps: elapsedFromStart ? (prev.attempts + 1) / elapsedFromStart : 0,
         decodeFps: elapsedFromStart ? (prev.hits + successes.length) / elapsedFromStart : 0,
@@ -300,15 +316,13 @@ export function OptiFrameLab() {
         complete: assembly.complete,
       });
 
-      const lanesDecoded = successes.length;
-      setStatus(`Multi-lane ${lanesDecoded}/${laneCount} decoded · ${assembly.received}/${assembly.total || 0} frames · ${workerCount} worker / ${localCount} local · ${elapsed.toFixed(0)} ms capture-decode`);
+      setStatus(`Multi-lane \${successes.length}/\${laneCount} decoded · \${assembly.received}/\${assembly.total || 0} frames · \${workerCount} worker / \${localCount} local · \${elapsed.toFixed(0)} ms capture-decode`);
 
       if (assembly.complete && assembly.payload) {
         setCameraDecoded(utf8ToText(assembly.payload));
       }
       return;
     }
-
     const trackedCrop = cropTrackedRegion(image);
     const shouldFullScan = !trackedCrop || framesSinceFullScanRef.current >= reacquireEveryFrames;
     if (trackedCrop && !shouldFullScan) {
