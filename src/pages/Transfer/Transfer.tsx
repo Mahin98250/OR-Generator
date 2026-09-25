@@ -204,7 +204,7 @@ export function Transfer() {
         if(cancelled || epoch!==renderEpochRef.current)return;
         if(display){
           renderCountRef.current+=1;
-          if(qrCanvasRef.current) drawQrMatricesToCanvas(qrCanvasRef.current,entry.matrices,900,14);
+          if(qrCanvasRef.current) drawQrMatricesToCanvas(qrCanvasRef.current,entry.matrices,1400,18);
           const now=performance.now();
           if(renderWindowStatsRef.current.started===0)renderWindowStatsRef.current.started=now;
           renderWindowStatsRef.current.count+=1;
