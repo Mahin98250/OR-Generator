@@ -2,6 +2,7 @@ import { analyzeScan } from './scan';
 import { QrEncodePool } from './qrEncodePool';
 import { optiFrameSelfTest } from './optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from './optiframeStream';
+import { cropOptiLaneGrid, createOptiLaneSurface, getOptiLaneLayout, type OptiLaneCount } from './optiframeLanes';
 import { OptiFrameDecodePool } from './optiframeDecodePool';
 import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
@@ -396,6 +397,35 @@ async function optiFrameWorkerDiagnostic() {
   }
 }
 
+async function optiFrameMultiLaneRoundTrip() {
+  const payloads = Array.from({ length: 4 }, (_, lane) =>
+    new TextEncoder().encode('OptiCode lane ' + lane + ' · '.repeat(40)),
+  );
+
+  for (const laneCount of [1, 2, 4] as OptiLaneCount[]) {
+    const selected = payloads.slice(0, laneCount);
+    const surface = createOptiLaneSurface(selected, 12, 40, laneCount);
+    const ctx = surface.canvas.getContext('2d', { willReadFrequently: true });
+    assert(ctx, 'Multi-lane fixture canvas context unavailable.');
+    const image = ctx.getImageData(0, 0, surface.canvas.width, surface.canvas.height);
+    const lanes = cropOptiLaneGrid(image, laneCount);
+    assert(lanes.length === laneCount, 'Expected ' + laneCount + ' cropped lanes, got ' + lanes.length + '.');
+
+    for (let lane = 0; lane < laneCount; lane += 1) {
+      const { decodeOptiFrame } = await import('./optiframe');
+      const decoded = decodeOptiFrame(lanes[lane].image);
+      assert(decoded, 'Lane ' + lane + ' failed axis-aligned decode in ' + laneCount + '× mode.');
+      assert(decoded.sequence === (12 + lane) % 40, 'Lane ' + lane + ' sequence mismatch in ' + laneCount + '× mode.');
+      expectEqualBytes(decoded.payload, selected[lane], 'Lane ' + lane + ' payload');
+    }
+
+    const layout = getOptiLaneLayout(laneCount);
+    assert(surface.canvas.width === layout.columns * 128 && surface.canvas.height === layout.rows * 128, 'Lane surface dimensions mismatch.');
+  }
+
+  return '1×, 2×, and 4× lane surfaces cropped and decoded byte-for-byte';
+}
+
 async function optiFrameStreamReassembly() {
   const text = 'OptiCode OptiFrame stream diagnostic · out-of-order · duplicates · UTF-8 ✓';
   const payload = new TextEncoder().encode(text.repeat(90));
@@ -544,6 +574,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OptiFrame · custom codec round trip', async () => { const r = optiFrameSelfTest(); return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified'; }),
     runCase('OptiFrame · worker perspective decode', optiFrameWorkerDiagnostic),
     runCase('OptiFrame · multi-frame reassembly', optiFrameStreamReassembly),
+    runCase('OptiFrame · multi-lane round trip', optiFrameMultiLaneRoundTrip),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
