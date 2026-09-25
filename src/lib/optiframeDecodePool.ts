@@ -1,8 +1,8 @@
-import type { OptiFrame } from './optiframe';
+import type { OptiFrame, OptiFramePerspectiveDiagnostics } from './optiframe';
 
 export type OptiFrameWorkerResult = {
   frame: OptiFrame;
-  diagnostics: { confidence: number; sampleWidth: number; sampleHeight: number; decodeMs: number };
+  diagnostics: OptiFramePerspectiveDiagnostics;
   workerMs: number;
   workerIndex: number;
 };
@@ -18,7 +18,7 @@ type WorkerResponse = {
   id: number;
   ok: boolean;
   frame?: OptiFrame;
-  diagnostics?: { confidence: number; sampleWidth: number; sampleHeight: number; decodeMs: number };
+  diagnostics?: OptiFramePerspectiveDiagnostics;
   error?: string;
 };
 
@@ -64,12 +64,7 @@ export class OptiFrameDecodePool {
 
           pending.resolve({
             frame: event.data.frame,
-            diagnostics: {
-              confidence: event.data.diagnostics.confidence,
-              sampleWidth: event.data.diagnostics.sampleWidth,
-              sampleHeight: event.data.diagnostics.sampleHeight,
-              decodeMs: event.data.diagnostics.decodeMs,
-            },
+            diagnostics: event.data.diagnostics,
             workerMs: performance.now() - pending.startedAt,
             workerIndex: pending.workerIndex,
           });
