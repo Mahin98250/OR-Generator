@@ -1,4 +1,5 @@
 import { analyzeScan } from './scan';
+import { createFountainDecoder, createFountainTransfer, parseFountainFrame } from './fountain';
 import {
   addMultiImageChunk,
   clearMultiImage,
@@ -198,6 +199,29 @@ async function multiImageRoundTrip() {
   return plan.total + ' frames · out-of-order delivery · original filename preserved · exact SHA-256';
 }
 
+async function fountainRoundTrip() {
+  const original = makeBytes(9_600, 123);
+  const file = new File([original], 'diagnostic-fountain.bin', { type: 'application/octet-stream' });
+  const plan = await createFountainTransfer(file);
+  const first = parseFountainFrame(await plan.getDroplet(0));
+  assert(first, 'Fountain fixture did not produce a valid droplet.');
+  const decoder = createFountainDecoder(first);
+  let duplicates = 0;
+  for (let i = 0; i < plan.blocks * 6 && !decoder.reconstruct; i += 1) {
+    const raw = await plan.getDroplet(i % 4);
+    const frame = parseFountainFrame(raw);
+    assert(frame, 'Fountain droplet failed to parse.');
+    const result = decoder.add(frame);
+    if (result.duplicate) duplicates += 1;
+    if (result.complete) break;
+  }
+  const rebuilt = await decoder.reconstruct();
+  assert(rebuilt, 'Fountain decoder could not reconstruct the fixture.');
+  expectEqualBytes(rebuilt.bytes, original, 'Fountain round-trip');
+  assert(rebuilt.hash === plan.hash, 'Fountain SHA-256 mismatch.');
+  return plan.blocks + ' source blocks · randomized droplets · duplicate tolerance · exact SHA-256';
+}
+
 async function scanFormatCompatibility() {
   const cases = [
     { input: 'https://example.com', kind: 'url', title: 'Website' },
@@ -319,6 +343,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
 
   return Promise.all([
     runCase('OR Transfer · round trip', transferRoundTrip),
+    runCase('OR Transfer · fountain round trip', fountainRoundTrip),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
