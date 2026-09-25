@@ -85,7 +85,7 @@ export function OptiFrameLab() {
       if (senderTimerRef.current !== null) window.clearInterval(senderTimerRef.current);
       senderTimerRef.current = null;
     };
-  }, [streamPlaying, streamPayload.length]);
+  }, [streamPlaying, streamPayload.length, laneCount, streamIntervalMs]);
 
   const streamSurface = useMemo(() => {
     try {
@@ -337,7 +337,7 @@ export function OptiFrameLab() {
         complete: assembly.complete,
       });
 
-      setStatus(`Multi-lane \${successes.length}/\${laneCount} decoded · \${assembly.received}/\${assembly.total || 0} frames · \${workerCount} worker / \${localCount} local · \${elapsed.toFixed(0)} ms capture-decode`);
+      setStatus(`Multi-lane ${successes.length}/${laneCount} decoded · ${assembly.received}/${assembly.total || 0} frames · ${workerCount} worker / ${localCount} local · ${elapsed.toFixed(0)} ms capture-decode`);
 
       if (assembly.complete && assembly.payload) {
         setCameraDecoded(utf8ToText(assembly.payload));
@@ -514,7 +514,7 @@ export function OptiFrameLab() {
         <div>
           <p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">Phase 2 · Experimental optical layer</p>
           <h1 className="mt-2 text-4xl font-black text-[var(--text)] sm:text-6xl">OptiFrame Lab</h1>
-          <p className="mt-4 max-w-4xl text-sm leading-7 text-[var(--text-muted)]">Custom 128×128 optical frames with four luminance levels, 2-bit symbols, four finder anchors, CRC-32, perspective correction and multi-frame reassembly. This is a research layer, not a claim of benchmarked superiority over QR.</p>
+          <p className="mt-4 max-w-4xl text-sm leading-7 text-[var(--text-muted)]">Custom 128×128 protocol frames rendered at a larger physical raster, with four luminance levels, rotationally tolerant finder anchors, perspective correction, CRC-32, parallel lanes and multi-frame reassembly. This is a research layer, not a claim of benchmarked superiority over QR.</p>
         </div>
         <div className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs font-bold text-cyan-300">{capacity} payload bytes / frame</div>
       </div>
@@ -569,7 +569,7 @@ export function OptiFrameLab() {
             <button onClick={() => setStreamIndex(index => (index + streamPayload.length - laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Previous</button>
             <button onClick={() => setStreamIndex(index => (index + laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Next</button>
           </div>
-          <p className="mt-3 text-xs text-[var(--text-muted)]">{laneCount > 1 ? `Multi-lane mode displays ${laneCount} independent frames at once; the receiver splits the camera image into the same grid and decodes lanes in parallel.` : 'Open this page on a second device and start Live camera receiver there. Put the sender surface in front of that camera to test real optical capture and reassembly.'}</p>
+          <p className="mt-3 text-xs text-[var(--text-muted)]">{laneCount > 1 ? `Multi-lane mode displays ${laneCount} independent frames at once; the receiver uses the matching ${laneCount === 2 ? '2:1' : '1:1'} grid aspect ratio and decodes lanes through the worker pool.` : 'For the first physical test, use 1× mode, fill the optical surface with the camera view, and keep all four finder anchors visible. Move closer only after the first frame is detected.'}</p>
         </GlassCard>
       </div>
 
@@ -587,6 +587,7 @@ export function OptiFrameLab() {
             </div>
           </div>
           {cameraError && <div className="mt-3 rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-xs leading-6 text-rose-100">{cameraError}</div>}
+          {cameraOn && cameraStats.cameraWidth > 0 && cameraStats.cameraWidth < 960 && <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-xs leading-6 text-amber-100">The browser supplied a {cameraStats.cameraWidth}×{cameraStats.cameraHeight} camera stream. The detector prefers a higher-resolution feed because more camera pixels per optical module generally gives it more information; this browser did not provide the preferred target.</div>}
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Attempts</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.attempts}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decoded</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.hits}</p></div>
