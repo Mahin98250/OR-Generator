@@ -132,7 +132,7 @@ export function parseFountainFrame(value: string): FountainDroplet | null {
       !Number.isInteger(size) || size < 0 || size > FOUNTAIN_MAX_FILE_SIZE ||
       !Number.isInteger(blocks) || blocks < 1 || blocks > Math.ceil(FOUNTAIN_MAX_FILE_SIZE / FOUNTAIN_BLOCK_BYTES) ||
       blockBytes !== FOUNTAIN_BLOCK_BYTES || !Number.isInteger(seed) || seed < 0 ||
-      !Number.isInteger(degree) || degree < 1 || degree > Math.min(20, blocks) || !data) return null;
+      !Number.isInteger(degree) || degree < 1 || degree > Math.min(40, blocks) || !data) return null;
   try {
     const bytes = unb64(data);
     if (bytes.length !== blockBytes) return null;
