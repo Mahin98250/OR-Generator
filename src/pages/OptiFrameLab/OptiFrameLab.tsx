@@ -582,6 +582,27 @@ export function OptiFrameLab() {
       const settings = track?.getSettings();
       const capabilities = track?.getCapabilities?.();
       setCameraCapabilities(capabilities ? Object.keys(capabilities).filter(key => ['width','height','frameRate','focusMode','zoom','torch','resizeMode'].includes(key)) : []);
+
+      if (track && capabilities) {
+        const focusModes = capabilities.focusMode;
+        const resizeModes = capabilities.resizeMode;
+        try {
+          const cameraConstraints: MediaTrackConstraints = {
+            width: { ideal: Math.min(1920, capabilities.width?.max ?? 1920) },
+            height: { ideal: Math.min(1080, capabilities.height?.max ?? 1080) },
+            frameRate: { ideal: Math.min(30, capabilities.frameRate?.max ?? 30) },
+          };
+          if (Array.isArray(resizeModes) && resizeModes.includes('none')) {
+            cameraConstraints.resizeMode = 'none';
+          }
+          if (Array.isArray(focusModes) && focusModes.includes('continuous')) {
+            cameraConstraints.advanced = [{ focusMode: 'continuous' }];
+          }
+          await track.applyConstraints(cameraConstraints);
+        } catch {
+          // Keep the stream if the browser rejects an optional camera optimization.
+        }
+      }
       setCameraStats(prev => ({ ...prev, cameraWidth: settings?.width ?? 0, cameraHeight: settings?.height ?? 0, cameraFrameRate: settings?.frameRate ?? 0 }));
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
