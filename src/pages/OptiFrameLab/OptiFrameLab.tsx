@@ -227,10 +227,15 @@ export function OptiFrameLab() {
 
       const tick = async () => {
         if (!streamRef.current) return;
+        const started = performance.now();
         await decodeCameraFrame();
-        loopRef.current = window.setTimeout(() => void tick(), 280);
+        const processingMs = performance.now() - started;
+        // Keep capture responsive without forcing a fixed cadence onto slower
+        // devices. The sender remains at the experimental 300 ms cadence.
+        const nextDelay = Math.max(140, Math.min(500, Math.round(processingMs * 1.35)));
+        loopRef.current = window.setTimeout(() => void tick(), nextDelay);
       };
-      loopRef.current = window.setTimeout(() => void tick(), 280);
+      loopRef.current = window.setTimeout(() => void tick(), 140);
     } catch (error) {
       setCameraError(error instanceof DOMException ? error.message : 'Camera permission was denied or unavailable.');
       stopCamera();
