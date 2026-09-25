@@ -440,9 +440,10 @@ function estimateCalibration(image: ImageData, anchors: ReadonlyArray<OptiFrameA
 function sampleModule(image: ImageData, x: number, y: number, moduleScale: number) {
   let total = 0;
   let count = 0;
-  // At small physical scales, a fixed 3×3 neighborhood blends adjacent
-  // modules. Scale the smoothing window with the module size instead.
-  const radius = Math.max(0, Math.min(2, Math.floor(moduleScale / 3)));
+  // Keep the sampling footprint inside the current optical module. Once the
+  // footprint reaches neighboring modules, four-level symbols become harder
+  // to separate, especially around 384 px lanes.
+  const radius = moduleScale >= 8 ? 2 : moduleScale >= 4 ? 1 : 0;
   for (let dy = -radius; dy <= radius; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
       total += bilinear(image, x + dx, y + dy);
