@@ -178,7 +178,6 @@ export function OptiFrameLab() {
     }
 
     const elapsed = performance.now() - captureStarted;
-    const elapsedSinceStart = cameraStats.startedAt ? Math.max(0.001, (performance.now() - cameraStats.startedAt) / 1000) : 0;
 
     setCameraStats(prev => {
       const nextHits = prev.hits + (result ? 1 : 0);
@@ -192,7 +191,6 @@ export function OptiFrameLab() {
         lastMs: elapsed,
         captureFps: elapsedFromStart ? (prev.attempts + 1) / elapsedFromStart : 0,
         decodeFps: elapsedFromStart ? nextHits / elapsedFromStart : 0,
-        goodputBps: elapsedFromStart ? (result ? 0 : 0) : 0,
       };
     });
 
