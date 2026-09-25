@@ -86,11 +86,12 @@ export function Transfer() {
           }
         }
         if(cancelled)return;
-        const renderMs=performance.now()-renderStart;
         renderCountRef.current+=1;
+        const image=drawQrGrid(values,900,14);
+        const renderMs=performance.now()-renderStart;
         if(renderWindowRef.current.started===0)renderWindowRef.current.started=performance.now();
         renderWindowRef.current.count+=1;
-        setQr(drawQrGrid(values,900,14));
+        setQr(image);
         if(autoTune && fountain){
           const now=performance.now();
           const windowMs=now-renderWindowRef.current.started;
