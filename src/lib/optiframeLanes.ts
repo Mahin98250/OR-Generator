@@ -47,8 +47,8 @@ export function createOptiLaneSurface(
     const sequence = getOptiLaneSequence(baseSequence, lane, total);
     const encoded = encodeOptiFrame(payloads[lane], sequence, total);
     frames.push(encoded.frame);
-    const x = (lane % layout.columns) * OPTIFRAME_SIZE;
-    const y = Math.floor(lane / layout.columns) * OPTIFRAME_SIZE;
+    const x = (lane % layout.columns) * laneRenderSize;
+    const y = Math.floor(lane / layout.columns) * laneRenderSize;
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(encoded.canvas, x, y, laneRenderSize, laneRenderSize);
   }
@@ -58,11 +58,21 @@ export function createOptiLaneSurface(
 
 export function cropOptiLaneGrid(source: ImageData, laneCount: OptiLaneCount) {
   const layout = getOptiLaneLayout(laneCount);
-  const gridSide = Math.min(source.width, source.height);
-  const gridX = Math.floor((source.width - gridSide) / 2);
-  const gridY = Math.floor((source.height - gridSide) / 2);
-  const laneWidth = Math.floor(gridSide / layout.columns);
-  const laneHeight = Math.floor(gridSide / layout.rows);
+  const targetAspect = layout.columns / layout.rows;
+  let gridWidth = source.width;
+  let gridHeight = Math.floor(gridWidth / targetAspect);
+
+  if (gridHeight > source.height) {
+    gridHeight = source.height;
+    gridWidth = Math.floor(gridHeight * targetAspect);
+  }
+
+  if (gridWidth < OPTIFRAME_SIZE * layout.columns || gridHeight < OPTIFRAME_SIZE * layout.rows) return [];
+
+  const gridX = Math.floor((source.width - gridWidth) / 2);
+  const gridY = Math.floor((source.height - gridHeight) / 2);
+  const laneWidth = Math.floor(gridWidth / layout.columns);
+  const laneHeight = Math.floor(gridHeight / layout.rows);
   if (laneWidth < OPTIFRAME_SIZE || laneHeight < OPTIFRAME_SIZE) return [];
 
   return Array.from({ length: laneCount }, (_, lane) => {
@@ -70,8 +80,8 @@ export function cropOptiLaneGrid(source: ImageData, laneCount: OptiLaneCount) {
     const row = Math.floor(lane / layout.columns);
     const x = gridX + col * laneWidth;
     const y = gridY + row * laneHeight;
-    const width = col === layout.columns - 1 ? gridSide - col * laneWidth : laneWidth;
-    const height = row === layout.rows - 1 ? gridSide - row * laneHeight : laneHeight;
+    const width = col === layout.columns - 1 ? gridWidth - col * laneWidth : laneWidth;
+    const height = row === layout.rows - 1 ? gridHeight - row * laneHeight : laneHeight;
     const image = new ImageData(width, height);
     for (let line = 0; line < height; line += 1) {
       const sourceStart = ((y + line) * source.width + x) * 4;
