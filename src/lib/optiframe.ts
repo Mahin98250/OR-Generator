@@ -19,6 +19,7 @@ export type OptiFrameAnchor = {
   y: number;
   score: number;
   scale: number;
+  angle: number;
 };
 
 export type OptiFramePerspectiveDiagnostics = {
@@ -161,7 +162,8 @@ function toImageData(source: CanvasImageSource | ImageData) {
   const sourceHeight = source instanceof HTMLVideoElement ? source.videoHeight : (typeof dimensions.height === 'number' ? dimensions.height : dimensions.displayHeight ?? 0);
   if (!sourceWidth || !sourceHeight) return null;
 
-  // Preserve the high-resolution camera sample; finder detection needs the real module scale.\n  const maxDimension = 1440;
+  // Preserve the high-resolution camera sample; finder detection needs the real module scale.
+  const maxDimension = 1440;
   const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
   const width = Math.max(1, Math.round(sourceWidth * scale));
   const height = Math.max(1, Math.round(sourceHeight * scale));
@@ -255,15 +257,22 @@ function expectedFinderLuma(r: number, c: number) {
   return finderBit(r, c) ? 1 : 0;
 }
 
-function finderScore(image: ImageData, cx: number, cy: number, moduleScale: number) {
+function finderScore(image: ImageData, cx: number, cy: number, moduleScale: number, angle = 0) {
   const points: Array<{ value: number; expected: number; weight: number }> = [];
   const half = (FINDER_SIZE - 1) / 2;
+  const radians = angle * Math.PI / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
   let min = 255;
   let max = 0;
 
   for (let r = 0; r < FINDER_SIZE; r++) {
     for (let c = 0; c < FINDER_SIZE; c++) {
-      const value = bilinear(image, cx + (c - half) * moduleScale, cy + (r - half) * moduleScale);
+      const dx = (c - half) * moduleScale;
+      const dy = (r - half) * moduleScale;
+      const x = cx + dx * cos - dy * sin;
+      const y = cy + dx * sin + dy * cos;
+      const value = bilinear(image, x, y);
       min = Math.min(min, value);
       max = Math.max(max, value);
       points.push({ value, expected: expectedFinderLuma(r, c), weight: finderBit(r, c) ? 1.1 : 1.65 });
@@ -287,31 +296,41 @@ function searchFinder(image: ImageData, corner: Corner) {
   const width = image.width;
   const height = image.height;
   const minDim = Math.min(width, height);
-  const step = Math.max(4, Math.round(minDim / 110));
-  // The finder is 9 protocol modules wide. The previous scale sweep jumped
-  // over common physical sizes (especially the 3 px/module 384 px lane),
-  // causing valid finders to be missed before refinement.
+  const step = Math.max(5, Math.round(minDim / 105));
   const expectedScale = minDim / OPTIFRAME_SIZE;
-  const minScale = Math.max(1.25, expectedScale * 0.45);
-  const maxScale = Math.min(18, Math.max(minScale + 2, expectedScale * 2.2));
+  const minScale = Math.max(1.25, expectedScale * 0.42);
+  const maxScale = Math.min(18, Math.max(minScale + 2, expectedScale * 2.25));
   const scaleStep = 1;
 
-  const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.45);
-  const xEnd = corner.includes('l') ? Math.floor(width * 0.58) : width;
-  const yStart = corner.includes('t') ? 0 : Math.floor(height * 0.45);
-  const yEnd = corner.includes('t') ? Math.floor(height * 0.58) : height;
+  const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.43);
+  const xEnd = corner.includes('l') ? Math.floor(width * 0.60) : width;
+  const yStart = corner.includes('t') ? 0 : Math.floor(height * 0.43);
+  const yEnd = corner.includes('t') ? Math.floor(height * 0.60) : height;
 
-  let best: OptiFrameAnchor | null = null;
-  for (let scale = minScale; scale <= maxScale; scale += scaleStep) {
-    for (let y = yStart + 4; y < yEnd - 4; y += step) {
-      for (let x = xStart + 4; x < xEnd - 4; x += step) {
-        const score = finderScore(image, x, y, scale);
-        if (score > (best?.score ?? 0)) best = { x, y, score, scale };
+  const scan = (angles: readonly number[]) => {
+    let best: OptiFrameAnchor | null = null;
+    for (const angle of angles) {
+      for (let scale = minScale; scale <= maxScale; scale += scaleStep) {
+        for (let y = yStart + 4; y < yEnd - 4; y += step) {
+          for (let x = xStart + 4; x < xEnd - 4; x += step) {
+            const score = finderScore(image, x, y, scale, angle);
+            if (score > (best?.score ?? 0)) best = { x, y, score, scale, angle };
+          }
+        }
       }
     }
+    return best;
+  };
+
+  // Most captures are close to upright. Start cheaply at 0° and only pay for
+  // rotational hypotheses when the upright search is not convincing.
+  let best = scan([0]);
+  if (!best || best.score < 0.84) {
+    const rotated = scan([-24, -16, -8, 8, 16, 24]);
+    if (rotated && rotated.score > (best?.score ?? 0)) best = rotated;
   }
 
-  if (!best || best.score < 0.73) return null;
+  if (!best || best.score < 0.68) return null;
 
   let refined = best;
   const fineStep = Math.max(1, step / 2);
@@ -319,14 +338,18 @@ function searchFinder(image: ImageData, corner: Corner) {
   const maxX = Math.min(xEnd - 3, best.x + step * 2);
   const minY = Math.max(yStart + 2, best.y - step * 2);
   const maxY = Math.min(yEnd - 3, best.y + step * 2);
-  const minS = Math.max(minScale, best.scale - scaleStep * 1.5);
-  const maxS = Math.min(maxScale, best.scale + scaleStep * 1.5);
+  const minS = Math.max(minScale, best.scale - 1.5);
+  const maxS = Math.min(maxScale, best.scale + 1.5);
+  const minA = Math.max(-30, best.angle - 5);
+  const maxA = Math.min(30, best.angle + 5);
 
-  for (let scale = minS; scale <= maxS; scale += 0.5) {
-    for (let y = minY; y <= maxY; y += fineStep) {
-      for (let x = minX; x <= maxX; x += fineStep) {
-        const score = finderScore(image, x, y, scale);
-        if (score > refined.score) refined = { x, y, score, scale };
+  for (let angle = minA; angle <= maxA; angle += 1) {
+    for (let scale = minS; scale <= maxS; scale += 0.5) {
+      for (let y = minY; y <= maxY; y += fineStep) {
+        for (let x = minX; x <= maxX; x += fineStep) {
+          const score = finderScore(image, x, y, scale, angle);
+          if (score > refined.score) refined = { x, y, score, scale, angle };
+        }
       }
     }
   }
@@ -385,12 +408,19 @@ function project(h: number[], u: number, v: number): [number, number] {
 function estimateCalibration(image: ImageData, anchors: ReadonlyArray<OptiFrameAnchor>) {
   const values: { dark: number; light: number }[] = [];
   for (const anchor of anchors) {
-    const { x: cx, y: cy, scale } = anchor;
+    const { x: cx, y: cy, scale, angle } = anchor;
+    const radians = angle * Math.PI / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
     const ring: number[] = [];
     const center: number[] = [];
     for (let r = 0; r < FINDER_SIZE; r++) {
       for (let c = 0; c < FINDER_SIZE; c++) {
-        const value = bilinear(image, cx + (c - 4) * scale, cy + (r - 4) * scale);
+        const dx = (c - 4) * scale;
+        const dy = (r - 4) * scale;
+        const x = cx + dx * cos - dy * sin;
+        const y = cy + dx * sin + dy * cos;
+        const value = bilinear(image, x, y);
         if (finderBit(r, c)) center.push(value);
         else ring.push(value);
       }
@@ -407,10 +437,12 @@ function estimateCalibration(image: ImageData, anchors: ReadonlyArray<OptiFrameA
   return { dark, light };
 }
 
-function sampleModule(image: ImageData, x: number, y: number) {
+function sampleModule(image: ImageData, x: number, y: number, moduleScale: number) {
   let total = 0;
   let count = 0;
-  const radius = 1;
+  // At small physical scales, a fixed 3×3 neighborhood blends adjacent
+  // modules. Scale the smoothing window with the module size instead.
+  const radius = Math.max(0, Math.min(2, Math.floor(moduleScale / 3)));
   for (let dy = -radius; dy <= radius; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
       total += bilinear(image, x + dx, y + dy);
@@ -433,10 +465,10 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
 
   const anchors = [tl, tr, bl, br] as const;
   const target: Array<[number, number]> = [
-    [8.5, 8.5],
-    [119.5, 8.5],
-    [8.5, 119.5],
-    [119.5, 119.5],
+    [8, 8],
+    [119, 8],
+    [8, 119],
+    [119, 119],
   ];
   const homography = solveHomography(
     anchors.map(anchor => [anchor.x, anchor.y]),
@@ -450,13 +482,22 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
   const calibration = estimateCalibration(image, anchors);
   if (!calibration) return null;
 
+  const topWidth = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+  const bottomWidth = Math.hypot(br.x - bl.x, br.y - bl.y);
+  const leftHeight = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+  const rightHeight = Math.hypot(br.x - tr.x, br.y - tr.y);
+  const longest = Math.max(topWidth, bottomWidth, leftHeight, rightHeight);
+  const shortest = Math.max(1, Math.min(topWidth, bottomWidth, leftHeight, rightHeight));
+  if (longest / shortest > 2.75) return null;
+
   const bits: number[] = [];
   for (let r = 0; r < OPTIFRAME_SIZE; r++) {
     for (let c = 0; c < OPTIFRAME_SIZE; c++) {
       if (isFinderCell(r, c)) continue;
-      const [sx, sy] = project(reverse, c + 0.5, r + 0.5);
+      const [sx, sy] = project(reverse, c, r);
       if (sx < 0 || sy < 0 || sx >= image.width || sy >= image.height) return null;
-      const raw = sampleModule(image, sx, sy);
+      const moduleScale = anchors.reduce((sum, anchor) => sum + anchor.scale, 0) / anchors.length;
+      const raw = sampleModule(image, sx, sy, moduleScale);
       const normalized = Math.max(0, Math.min(255, (raw - calibration.dark) * 255 / (calibration.light - calibration.dark)));
       const level = quantize(normalized);
       bits.push((level >>> 1) & 1, level & 1);
