@@ -44,7 +44,7 @@ export class OptiFrameAssembler {
   }
 
   add(frame: OptiFrame): OptiFrameAssembly {
-    const startsNewStream = !this.total || (frame.sequence === 0 && this.frames.size > 0);
+    const startsNewStream = !this.total || frame.total !== this.total || (frame.sequence === 0 && this.frames.size === this.total);
     if (startsNewStream) this.reset(frame.total);
 
     if (frame.total !== this.total || frame.sequence < 0 || frame.sequence >= frame.total) {
