@@ -1,4 +1,5 @@
-const FOUNTAIN_PREFIX = 'ORF1:';
+const FOUNTAIN_PREFIX = 'ORF2:';
+const LEGACY_FOUNTAIN_PREFIX = 'ORF1:';
 
 // High-density optical source blocks. The 32-bit seed is deliberately
 // deterministic so long-running streams do not depend on Math.random() or
@@ -34,9 +35,41 @@ export type FountainDroplet = {
   seed: number;
   degree: number;
   data: string;
+  version: 1 | 2;
 };
 
 type Equation = { indexes: Set<number>; data: Uint8Array };
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let i = 0; i < 8; i += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function crcHex(value: number) {
+  return value.toString(16).padStart(8, '0');
+}
+
+function withFrameIntegrity(bytes: Uint8Array) {
+  return b64(bytes) + '.' + crcHex(crc32(bytes));
+}
+
+function parseFrameIntegrity(value: string) {
+  const separator = value.lastIndexOf('.');
+  if (separator <= 0 || separator >= value.length - 1) return null;
+  const encoded = value.slice(0, separator);
+  const crc = value.slice(separator + 1).toLowerCase();
+  if (!/^[a-f0-9]{8}$/.test(crc)) return null;
+  try {
+    const bytes = unb64(encoded);
+    return crcHex(crc32(bytes)) === crc ? bytes : null;
+  } catch {
+    return null;
+  }
+}
 
 function b64(bytes: Uint8Array) {
   let s = '';
@@ -223,7 +256,7 @@ export async function createFountainTransfer(file: File): Promise<FountainPlan> 
           FOUNTAIN_BLOCK_BYTES,
           seed,
           degree,
-          b64(payload),
+          withFrameIntegrity(payload),
         ].join('|');
       }
 
@@ -249,14 +282,14 @@ export async function createFountainTransfer(file: File): Promise<FountainPlan> 
         FOUNTAIN_BLOCK_BYTES,
         seed,
         degree,
-        b64(payload),
+        withFrameIntegrity(payload),
       ].join('|');
     },
   };
 }
 
 export function isFountainFrame(value: string) {
-  return value.startsWith(FOUNTAIN_PREFIX);
+  return value.startsWith(FOUNTAIN_PREFIX) || value.startsWith(LEGACY_FOUNTAIN_PREFIX);
 }
 
 export function parseFountainFrame(value: string): FountainDroplet | null {
@@ -264,7 +297,9 @@ export function parseFountainFrame(value: string): FountainDroplet | null {
   if (p.length !== 10 || !isFountainFrame(value)) return null;
 
   const [sessionRaw, mimeRaw, nameRaw, sizeRaw, hashRaw, blocksRaw, blockBytesRaw, seedRaw, degreeRaw, data] = p;
-  const session = sessionRaw.slice(FOUNTAIN_PREFIX.length);
+  const version: 1 | 2 = sessionRaw.startsWith(FOUNTAIN_PREFIX) ? 2 : 1;
+  const prefixLength = version === 2 ? FOUNTAIN_PREFIX.length : LEGACY_FOUNTAIN_PREFIX.length;
+  const session = sessionRaw.slice(prefixLength);
   const size = Number(sizeRaw);
   const blocks = Number(blocksRaw);
   const blockBytes = Number(blockBytesRaw);
@@ -289,12 +324,13 @@ export function parseFountainFrame(value: string): FountainDroplet | null {
     !Number.isInteger(degree) ||
     degree < 1 ||
     degree > Math.min(blocks, blocks <= 2 ? 1 : blocks) ||
+    blocks !== Math.max(1, Math.ceil(size / FOUNTAIN_BLOCK_BYTES)) ||
     !data
   ) return null;
 
   try {
-    const bytes = unb64(data);
-    if (bytes.length !== blockBytes) return null;
+    const bytes = version === 2 ? parseFrameIntegrity(data) : unb64(data);
+    if (!bytes || bytes.length !== blockBytes) return null;
     return {
       session,
       mime: decodeURIComponent(mimeRaw),
@@ -305,7 +341,8 @@ export function parseFountainFrame(value: string): FountainDroplet | null {
       blockBytes,
       seed: seed >>> 0,
       degree,
-      data,
+      data: b64(bytes),
+      version,
     };
   } catch {
     return null;
