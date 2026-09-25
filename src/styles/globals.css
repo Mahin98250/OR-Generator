@@ -81,9 +81,8 @@ button,input,textarea,select{font:inherit} button:disabled{cursor:not-allowed;op
   :root[data-theme='light'] .text-violet-300 { color:#5b3ab8 !important; }
   :root[data-theme='light'] .text-rose-200,
   :root[data-theme='light'] .text-rose-300 { color:#b4233f !important; }
-  :root[data-theme='light'] .text-white { color:var(--text) !important; }
-  :root[data-theme='light'] .text-white\\/45,
-  :root[data-theme='light'] .text-white\\/70 { color:var(--text-muted) !important; }
+  :root[data-theme='light'] [class~="text-white/45"],
+  :root[data-theme='light'] [class~="text-white/70"] { color:var(--text-muted) !important; }
   :root[data-theme='light'] select option {
     background:#fff;
     color:#101426;
