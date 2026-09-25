@@ -27,9 +27,15 @@ export function createOptiLaneSurface(
   }
 
   const layout = getOptiLaneLayout(laneCount);
+  // Render the optical surface substantially larger than the protocol's
+  // minimum 128×128 decoder grid. The camera should receive large cells;
+  // CSS-only upscaling leaves too few physical display pixels for reliable
+  // mobile-camera acquisition.
+  const renderScale = 3;
+  const laneRenderSize = OPTIFRAME_SIZE * renderScale;
   const canvas = document.createElement('canvas');
-  canvas.width = layout.columns * OPTIFRAME_SIZE;
-  canvas.height = layout.rows * OPTIFRAME_SIZE;
+  canvas.width = layout.columns * laneRenderSize;
+  canvas.height = layout.rows * laneRenderSize;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas unavailable.');
 
@@ -43,7 +49,8 @@ export function createOptiLaneSurface(
     frames.push(encoded.frame);
     const x = (lane % layout.columns) * OPTIFRAME_SIZE;
     const y = Math.floor(lane / layout.columns) * OPTIFRAME_SIZE;
-    ctx.drawImage(encoded.canvas, x, y);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(encoded.canvas, x, y, laneRenderSize, laneRenderSize);
   }
 
   return { canvas, frames, layout };
