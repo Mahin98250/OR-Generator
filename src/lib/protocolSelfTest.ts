@@ -207,13 +207,14 @@ async function fountainRoundTrip() {
   assert(first, 'Fountain fixture did not produce a valid droplet.');
   const decoder = createFountainDecoder(first);
   let duplicates = 0;
-  for (let i = 0; i < plan.blocks * 6 && !decoder.reconstruct; i += 1) {
+  let complete = false;
+  for (let i = 0; i < plan.blocks * 20 && !complete; i += 1) {
     const raw = await plan.getDroplet(i % 4);
     const frame = parseFountainFrame(raw);
     assert(frame, 'Fountain droplet failed to parse.');
     const result = decoder.add(frame);
     if (result.duplicate) duplicates += 1;
-    if (result.complete) break;
+    complete = result.complete;
   }
   const rebuilt = await decoder.reconstruct();
   assert(rebuilt, 'Fountain decoder could not reconstruct the fixture.');
