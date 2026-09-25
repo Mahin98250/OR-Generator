@@ -118,17 +118,19 @@ export function parseMultiImageQr(value: string) {
   if (!isMultiImageQr(value)) return null;
 
   const parts = value.split('|');
-  if (parts.length !== 7 && parts.length !== 8) return null;
+  if (parts.length !== 6 && parts.length !== 7) return null;
 
-  // v1: prefix,id,mime,hash,index,total,data
-  // v2: prefix,id,mime,name,hash,index,total,data
-  const [, id, mimeRaw, third, fourth, fifth, sixth, seventh] = parts;
-  const isV2 = parts.length === 8;
-  const hash = isV2 ? fourth : third;
-  const nameRaw = isV2 ? third : '';
-  const indexRaw = isV2 ? fifth : fourth;
-  const totalRaw = isV2 ? sixth : fifth;
-  const data = isV2 ? seventh : sixth;
+  // v1: prefix+id,mime,hash,index,total,data
+  // v2: prefix+id,mime,name,hash,index,total,data
+  const sessionRaw = parts[0];
+  const mimeRaw = parts[1];
+  const isV2 = parts.length === 7;
+  const nameRaw = isV2 ? parts[2] : '';
+  const hash = isV2 ? parts[3] : parts[2];
+  const indexRaw = isV2 ? parts[4] : parts[3];
+  const totalRaw = isV2 ? parts[5] : parts[4];
+  const data = isV2 ? parts[6] : parts[5];
+  const id = sessionRaw.slice(MULTI_IMAGE_QR_PREFIX.length);
 
   const index = Number(indexRaw);
   const total = Number(totalRaw);
@@ -137,6 +139,7 @@ export function parseMultiImageQr(value: string) {
     !id ||
     !mimeRaw ||
     !hash ||
+    !/^[a-f0-9]{64}$/i.test(hash) ||
     !Number.isInteger(index) ||
     !Number.isInteger(total) ||
     index < 1 ||
@@ -156,7 +159,6 @@ export function parseMultiImageQr(value: string) {
     return null;
   }
 }
-
 export function addMultiImageChunk(value: string) {
   const parsed = parseMultiImageQr(value);
   if (!parsed) return null;
