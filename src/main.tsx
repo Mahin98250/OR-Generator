@@ -6,7 +6,7 @@ import './styles/globals.css';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/OR-Generator/sw.js', { scope: '/OR-Generator/' }).catch(() => {
+    navigator.serviceWorker.register('/OptiCode-Studio/sw.js', { scope: '/OptiCode-Studio/' }).catch(() => {
       // Keep the app fully usable even if service worker registration is unavailable.
     });
   });
