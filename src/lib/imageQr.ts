@@ -190,7 +190,9 @@ export async function addMultiImageChunk(value: string) {
       createdAt: Date.now(),
     };
 
-  if (!compatible && current) await clearSession(key);
+  if (current && !compatible) {
+    throw new Error('This frame conflicts with an existing Multi-QR photo session. Reset that session before starting another scan.');
+  }
   if (!compatible) await putSession(session);
 
   const stored = await putChunk(key, parsed.index, parsed.data);
