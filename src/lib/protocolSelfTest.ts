@@ -243,6 +243,36 @@ async function multiImageMissingRecovery() {
 }
 
 
+
+async function generatorScannerCompatibility() {
+  const cases: Array<{ label: string; value: string; kind: string; format?: string }> = [
+    { label: 'URL', value: 'https://example.com/docs?q=qr', kind: 'url', format: 'QR CODE' },
+    { label: 'Email', value: 'mailto:student@example.com', kind: 'email', format: 'QR CODE' },
+    { label: 'Phone', value: '+919876543210', kind: 'phone', format: 'QR CODE' },
+    { label: 'Wi-Fi', value: 'WIFI:T:WPA;S:SchoolNet;P:school-pass;;', kind: 'wifi', format: 'QR CODE' },
+    { label: 'UPI', value: 'upi://pay?pa=student@upi&pn=Student&am=25', kind: 'upi', format: 'QR CODE' },
+    { label: 'vCard', value: 'BEGIN:VCARD\\nVERSION:3.0\\nFN:Student\\nTEL:+919876543210\\nEMAIL:student@example.com\\nEND:VCARD', kind: 'vcard', format: 'QR CODE' },
+    { label: 'Geo', value: 'geo:23.0225,72.5714', kind: 'geo', format: 'QR CODE' },
+    { label: 'Calendar', value: 'BEGIN:VEVENT\\nSUMMARY:Science Test\\nEND:VEVENT', kind: 'calendar', format: 'QR CODE' },
+    { label: 'ISBN', value: '9780306406157', kind: 'isbn', format: 'QR CODE' },
+    { label: 'Barcode', value: '012345678905', kind: 'barcode', format: 'UPC-A' },
+    { label: 'Text', value: 'Hello from OR-Generator', kind: 'text', format: 'QR CODE' },
+  ];
+
+  for (const item of cases) {
+    const analysis = analyzeScan(item.value, item.format);
+    assert(analysis.kind === item.kind, item.label + ' classified as ' + analysis.kind + ' instead of ' + item.kind + '.');
+  }
+
+  const transfer = analyzeScan(
+    'ORX1:test-session|application%2Foctet-stream|ZmlsZS5iaW4|4096|' + 'a'.repeat(64) + '|3|8|' + 'A'.repeat(20),
+    'QR CODE',
+  );
+  assert(transfer.kind === 'or-transfer', 'OR Transfer compatibility classification failed.');
+
+  return cases.length + ' standard payload types + OR Transfer classified correctly';
+}
+
 async function scanClassification() {
   const transferRaw = 'ORX1:diagnostic|application%2Foctet-stream|ZGlhZ25vc3RpYy5iaW4|1200|' + 'a'.repeat(64) + '|2|4|' + 'A'.repeat(1200);
   const transfer = analyzeScan(transferRaw, 'QR CODE');
@@ -294,6 +324,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
     runCase('Multi-QR Photo · missing-frame recovery', multiImageMissingRecovery),
+    runCase('Scanner · Generator compatibility', generatorScannerCompatibility),
     runCase('Scanner · payload classification', scanClassification),
     runCase('Protocol · parser validation', parserValidation),
     runCase('Scanner · format compatibility', scanFormatCompatibility),
