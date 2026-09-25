@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import { QrDecodePool } from '../../lib/qrDecodePool';
 import { createBenchmarkStart, finishBenchmark, type OpticalBenchmark } from '../../lib/opticalBenchmark';
 import { OR_TRANSFER_GRID_SIZE, addTransferFrame, createTransfer, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
-import { drawQrGrid } from '../../lib/qrCanvas';
+import { drawQrGrid, drawQrMatricesGrid } from '../../lib/qrCanvas';
+import { QrEncodePool, type QrEncodeResult } from '../../lib/qrEncodePool';
 import { createFountainDecoder, createFountainTransfer, FOUNTAIN_BLOCK_BYTES, FOUNTAIN_GRID_SIZE, isFountainFrame, parseFountainFrame, type FountainDecoder, type FountainDroplet, type FountainPlan } from '../../lib/fountain';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
@@ -15,6 +16,9 @@ type Progress = { mode:'fountain'|'compatibility'; session:string; name:string; 
 type Telemetry = {
   startedAt:number|null;
   renderMs:number;
+  encodeMs:number;
+  prefetchReady:number;
+  encoderWorkers:number;
   renderCount:number;
   renderFps:number;
   detectedPerSecond:number;
@@ -43,7 +47,7 @@ export function Transfer() {
   const [autoTune,setAutoTune]=useState(true);
   const [benchmarking,setBenchmarking]=useState(false);
   const [benchmark,setBenchmark]=useState<OpticalBenchmark|null>(null);
-  const [telemetry,setTelemetry]=useState<Telemetry>({startedAt:null,renderMs:0,renderCount:0,renderFps:0,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,decodeMs:0,scanDelayMs:55});
+  const [telemetry,setTelemetry]=useState<Telemetry>({startedAt:null,renderMs:0,encodeMs:0,prefetchReady:0,encoderWorkers:0,renderCount:0,renderFps:0,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,decodeMs:0,scanDelayMs:55});
   const inputRef=useRef<HTMLInputElement>(null);
   const videoRef=useRef<HTMLVideoElement>(null);
   const streamRef=useRef<MediaStream|null>(null);
@@ -52,6 +56,10 @@ export function Transfer() {
   const fallbackCanvasRef=useRef<HTMLCanvasElement|null>(null);
   const qrPoolRef=useRef<QrDecodePool|null>(null);
   const timerRef=useRef<number|null>(null);
+  const qrEncoderRef=useRef<QrEncodePool|null>(null);
+  const renderCacheRef=useRef<Map<string,{image:string;renderMs:number;encodeMs:number}>>(new Map());
+  const renderEpochRef=useRef(0);
+  const renderWindowStatsRef=useRef({started:0,count:0,renderMs:0});
   const fountainDecoderRef=useRef<FountainDecoder|null>(null);
   const fountainMetaRef=useRef<FountainDroplet|null>(null);
   const recentRef=useRef<Map<string,number>>(new Map());
@@ -70,54 +78,147 @@ export function Transfer() {
   const benchmarkDecodeSamplesRef=useRef<number[]>([]);
   const benchmarkTimerRef=useRef<number|null>(null);
 
+  useEffect(()=>{
+    try{
+      qrEncoderRef.current=new QrEncodePool();
+      setTelemetry(prev=>({...prev,encoderWorkers:qrEncoderRef.current?.capacity ?? 0}));
+    }catch{
+      qrEncoderRef.current=null;
+    }
+    return()=>{
+      qrEncoderRef.current?.dispose();
+      qrEncoderRef.current=null;
+    };
+  },[]);
+
   useEffect(()=>()=>{ stopReceive(); stopPlayback(); if(result?.url) URL.revokeObjectURL(result.url); },[result]);
+
   useEffect(()=>{
     if(!playing) return;
     timerRef.current=window.setInterval(()=>setGroup(v=>v+1),intervalMs);
     return()=>{ if(timerRef.current!==null) window.clearInterval(timerRef.current); timerRef.current=null; };
   },[playing,intervalMs]);
 
+  function clearRenderPipeline(){
+    renderEpochRef.current+=1;
+    renderCacheRef.current.clear();
+    renderWindowStatsRef.current={started:0,count:0,renderMs:0};
+    setTelemetry(prev=>({...prev,prefetchReady:0,encodeMs:0,renderMs:0,renderCount:0,renderFps:0}));
+  }
+
+  async function buildRenderGroup(
+    planKey:string,
+    plan:FountainPlan|Awaited<ReturnType<typeof createTransfer>>,
+    groupIndex:number,
+    fountainMode:boolean,
+  ){
+    const grid=fountainMode ? FOUNTAIN_GRID_SIZE : OR_TRANSFER_GRID_SIZE;
+    const totalGroups=fountainMode
+      ? Math.max(1,Math.ceil((plan as FountainPlan).recommended/grid))
+      : Math.max(1,Math.ceil((plan as Awaited<ReturnType<typeof createTransfer>>).total/grid));
+    const current=fountainMode ? groupIndex : groupIndex%totalGroups;
+    const key=planKey+':'+current;
+    const cached=renderCacheRef.current.get(key);
+    if(cached){
+      renderCacheRef.current.delete(key);
+      renderCacheRef.current.set(key,cached);
+      return {...cached,cacheHit:true};
+    }
+
+    const renderStart=performance.now();
+    const values:string[]=[];
+    for(let lane=0;lane<grid;lane+=1){
+      if(fountainMode) values.push(await (plan as FountainPlan).getDroplet(lane,groupIndex));
+      else{
+        const index=current*grid+lane+1;
+        const compatPlan=plan as Awaited<ReturnType<typeof createTransfer>>;
+        if(index<=compatPlan.total) values.push(await compatPlan.getFrame(index));
+      }
+    }
+
+    const encoder=qrEncoderRef.current;
+    let encodeStats:QrEncodeResult|null=null;
+    let image='';
+    if(encoder && encoder.capacity>0){
+      encodeStats=await encoder.encode(values);
+      image=drawQrMatricesGrid(encodeStats.matrices,900,14);
+    }else{
+      image=drawQrGrid(values,900,14);
+    }
+
+    const renderMs=performance.now()-renderStart;
+    const entry={image,renderMs,encodeMs:encodeStats?.encodeMs ?? 0};
+    renderCacheRef.current.delete(key);
+    renderCacheRef.current.set(key,entry);
+    while(renderCacheRef.current.size>6){
+      const oldest=renderCacheRef.current.keys().next().value as string|undefined;
+      if(!oldest)break;
+      renderCacheRef.current.delete(oldest);
+    }
+    return {...entry,cacheHit:false};
+  }
+
   useEffect(()=>{
     let cancelled=false;
     const plan=fountain ?? compat;
-    if(!plan){ setQr(''); return; }
-    const grid=fountain ? FOUNTAIN_GRID_SIZE : OR_TRANSFER_GRID_SIZE;
-    const totalGroups=fountain ? Math.max(1,Math.ceil(fountain.recommended/grid)) : Math.max(1,Math.ceil((compat?.total ?? 1)/grid));
-    const current=group%totalGroups;
-    void (async()=>{
+    if(!plan){ setQr(''); clearRenderPipeline(); return; }
+
+    const epoch=++renderEpochRef.current;
+    const fountainMode=Boolean(fountain);
+    const planKey=fountainMode
+      ? 'f:'+(fountain as FountainPlan).session
+      : 'c:'+(compat as Awaited<ReturnType<typeof createTransfer>>).session;
+    const groupIndices=[group,group+1,group+2,group+3];
+
+    const loadGroup=async(index:number,display=false)=>{
       try{
-        const renderStart=performance.now();
-        const values:string[]=[];
-        for(let lane=0;lane<grid;lane+=1){
-          if(fountain) values.push(await fountain.getDroplet(lane, group));
-          else{
-            const index=current*grid+lane+1;
-            if(compat && index<=compat.total) values.push(await compat.getFrame(index));
-          }
-        }
-        if(cancelled)return;
-        renderCountRef.current+=1;
-        const image=drawQrGrid(values,900,14);
-        const renderMs=performance.now()-renderStart;
-        if(renderWindowRef.current.started===0)renderWindowRef.current.started=performance.now();
-        renderWindowRef.current.count+=1;
-        setQr(image);
-        if(autoTune && fountain){
+        const entry=await buildRenderGroup(planKey,plan,index,fountainMode);
+        if(cancelled || epoch!==renderEpochRef.current)return;
+        if(display){
+          renderCountRef.current+=1;
+          setQr(entry.image);
           const now=performance.now();
-          const windowMs=now-renderWindowRef.current.started;
+          if(renderWindowStatsRef.current.started===0)renderWindowStatsRef.current.started=now;
+          renderWindowStatsRef.current.count+=1;
+          renderWindowStatsRef.current.renderMs+=entry.renderMs;
+          const windowMs=now-renderWindowStatsRef.current.started;
           if(windowMs>=1500){
-            const fps=renderWindowRef.current.count/(windowMs/1000);
-            const avg=(renderMs+telemetry.renderMs)/2;
-            if(avg<18 && fps>8 && intervalMs>50)setIntervalMs(v=>Math.max(50,v-10));
-            else if(avg>45 && intervalMs<300)setIntervalMs(v=>Math.min(300,v+20));
-            renderWindowRef.current={started:now,count:0};
+            const fps=renderWindowStatsRef.current.count/(windowMs/1000);
+            const avgRender=renderWindowStatsRef.current.renderMs/Math.max(1,renderWindowStatsRef.current.count);
+            if(autoTune && fountainMode){
+              if(avgRender<20 && fps>8 && intervalMs>50)setIntervalMs(v=>Math.max(50,v-10));
+              else if(avgRender>48 && intervalMs<300)setIntervalMs(v=>Math.min(300,v+20));
+            }
+            renderWindowStatsRef.current={started:now,count:0,renderMs:0};
           }
+
+          const totalGroupsForUi=fountainMode
+            ? Math.max(1,Math.ceil((plan as FountainPlan).recommended/FOUNTAIN_GRID_SIZE))
+            : Math.max(1,Math.ceil((plan as Awaited<ReturnType<typeof createTransfer>>).total/OR_TRANSFER_GRID_SIZE));
+          const ready=groupIndices.filter(next=>{
+            const resolved=fountainMode ? next : next%totalGroupsForUi;
+            return renderCacheRef.current.has(planKey+':'+resolved);
+          }).length;
+
+          setTelemetry(prev=>({
+            ...prev,
+            renderMs:prev.renderMs===0?entry.renderMs:prev.renderMs*.75+entry.renderMs*.25,
+            encodeMs:prev.encodeMs===0?entry.encodeMs:prev.encodeMs*.75+entry.encodeMs*.25,
+            prefetchReady:ready,
+            encoderWorkers:qrEncoderRef.current?.capacity ?? 0,
+            renderCount:renderCountRef.current,
+            renderFps:prev.renderFps===0
+              ? 1/Math.max(.001,entry.renderMs/1000)
+              : prev.renderFps*.8+(1/Math.max(.001,entry.renderMs/1000))*.2,
+          }));
         }
-        setTelemetry(prev=>({...prev,renderMs:prev.renderCount===0?renderMs:(prev.renderMs*0.75+renderMs*0.25),renderCount:renderCountRef.current,renderFps:prev.renderFps===0?1/(Math.max(.001,renderMs)/1000):prev.renderFps*.8+(1/Math.max(.001,renderMs/1000))*.2}));
-      }catch(e){
-        if(!cancelled)setError(e instanceof Error?e.message:'Unable to render the transfer stream.');
+      }catch(error){
+        if(!cancelled && epoch===renderEpochRef.current)setError(error instanceof Error?error.message:'Unable to render the transfer stream.');
       }
-    })();
+    };
+
+    void loadGroup(group,true);
+    for(const index of groupIndices.slice(1)) void loadGroup(index,false);
     return()=>{cancelled=true;};
   },[fountain,compat,group,autoTune,intervalMs]);
 
@@ -136,7 +237,7 @@ export function Transfer() {
 
   async function choose(value?:File){
     if(!value)return;
-    setError(''); setResult(null); stopPlayback(); setGroup(0); resetDecoder(); receiverStartedRef.current=null; solvedRef.current=0; decodedBytesRef.current=0; duplicateCountRef.current=0; detectedWindowRef.current={started:0,count:0}; renderWindowRef.current={started:0,count:0};
+    setError(''); setResult(null); stopPlayback(); setGroup(0); resetDecoder(); clearRenderPipeline(); receiverStartedRef.current=null; solvedRef.current=0; decodedBytesRef.current=0; duplicateCountRef.current=0; detectedWindowRef.current={started:0,count:0}; renderWindowRef.current={started:0,count:0};
     try{
       if(mode==='fountain'){
         const plan=await createFountainTransfer(value); setFountain(plan); setCompat(null);
@@ -346,7 +447,7 @@ export function Transfer() {
         <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">Live optical stream</p><p className="mt-1 text-sm text-[var(--text-muted)]">{fountain?'Fountain droplets · systematic + random recovery lanes':compat?'Sequential compatibility stream':'Choose a file to begin'}</p></div>{(fountain||compat)&&<button onClick={()=>setPlaying(v=>!v)} className="rounded-full bg-white px-4 py-2 text-xs font-black text-slate-950">{playing?'Pause':'Start stream'}</button>}</div>
         {qr?<img src={qr} alt="OptiTransfer QR stream" className="mx-auto mt-5 aspect-square w-full max-w-[620px] rounded-2xl bg-white p-2"/>:<div className="mt-5 grid aspect-square place-items-center rounded-2xl bg-black/20 text-sm text-[var(--text-muted)]">QR stream preview</div>}
         {(fountain||compat)&&<div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Auto tune<select value={autoTune?'on':'off'} onChange={e=>setAutoTune(e.target.value==='on')} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="on">On · render-safe</option><option value="off">Off · manual</option></select></label><label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Speed<select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="60">60 ms · extreme</option><option value="80">80 ms · very fast</option><option value="100">100 ms · recommended</option><option value="150">150 ms · safe</option><option value="250">250 ms · compatibility</option></select></label><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Render</b><p className="mt-1 text-[var(--text-muted)]">{telemetry.renderMs.toFixed(1)} ms · {intervalMs?Math.round(1000/intervalMs):0} FPS target</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Payload</b><p className="mt-1 text-[var(--text-muted)]">{fountain?FOUNTAIN_BLOCK_BYTES+' bytes/block':'~1875 bytes/frame'}</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Lanes</b><p className="mt-1 text-[var(--text-muted)]">4 QR codes</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Recovery</b><p className="mt-1 text-[var(--text-muted)]">{fountain?'Fountain':'Sequential'}</p></div></div>}
+          <label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Auto tune<select value={autoTune?'on':'off'} onChange={e=>setAutoTune(e.target.value==='on')} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="on">On · render-safe</option><option value="off">Off · manual</option></select></label><label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Speed<select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="60">60 ms · extreme</option><option value="80">80 ms · very fast</option><option value="100">100 ms · recommended</option><option value="150">150 ms · safe</option><option value="250">250 ms · compatibility</option></select></label><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Engine</b><p className="mt-1 text-[var(--text-muted)]">{telemetry.encoderWorkers>0?telemetry.encoderWorkers+' worker encoder':'main-thread fallback'} · {telemetry.prefetchReady}/4 groups ready</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Render</b><p className="mt-1 text-[var(--text-muted)]">{telemetry.renderMs.toFixed(1)} ms · QR encode {telemetry.encodeMs.toFixed(1)} ms</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Payload</b><p className="mt-1 text-[var(--text-muted)]">{fountain?FOUNTAIN_BLOCK_BYTES+' bytes/block':'~1875 bytes/frame'}</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Lanes</b><p className="mt-1 text-[var(--text-muted)]">4 QR codes</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Recovery</b><p className="mt-1 text-[var(--text-muted)]">{fountain?'Fountain':'Sequential'}</p></div></div>}
       </div>
     </div> : <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_.8fr]">
       <div className="glass-panel overflow-hidden rounded-[28px] p-4"><video ref={videoRef} muted playsInline className="aspect-video w-full rounded-2xl bg-black object-cover"/><div className="mt-3 flex flex-wrap gap-2"><button onClick={()=>{if(receiving)stopReceive();else void startReceive();}} className="rounded-full bg-white px-4 py-2 text-sm font-black text-slate-950">{receiving?'Stop receiver':'Start receiver'}</button><span className="rounded-full bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300">{receiving?'Scanning multi-QR':'Camera idle'}</span>{receiving&&<button onClick={startBenchmark} className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs font-bold text-cyan-200">{benchmarking?'Benchmarking…':'10s benchmark'}</button>}</div></div>

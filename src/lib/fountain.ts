@@ -181,13 +181,6 @@ export async function createFountainTransfer(file: File): Promise<FountainPlan> 
   const hash = await sha256(bytes);
   const session = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
   const blocks = Math.max(1, Math.ceil(file.size / FOUNTAIN_BLOCK_BYTES));
-  const source = Array.from(
-    { length: blocks },
-    (_, i) => normalizeBlock(
-      bytes.subarray(i * FOUNTAIN_BLOCK_BYTES, Math.min(bytes.length, (i + 1) * FOUNTAIN_BLOCK_BYTES)),
-      FOUNTAIN_BLOCK_BYTES,
-    ),
-  );
   const encodedName = encodeName(file.name);
   const mime = encodeURIComponent(file.type || 'application/octet-stream');
   const sessionHash = hashSession(session);
@@ -215,7 +208,11 @@ export async function createFountainTransfer(file: File): Promise<FountainPlan> 
         const target = ((normalizedSequence * 2 + normalizedLane) % blocks) >>> 0;
         const seed = (SYSTEMATIC_SEED_MASK | target) >>> 0;
         const degree = 1;
-        const payload = source[target].slice();
+        const start = target * FOUNTAIN_BLOCK_BYTES;
+        const payload = normalizeBlock(
+          bytes.subarray(start, Math.min(bytes.length, start + FOUNTAIN_BLOCK_BYTES)),
+          FOUNTAIN_BLOCK_BYTES,
+        );
         return [
           FOUNTAIN_PREFIX + session,
           mime,
@@ -234,7 +231,13 @@ export async function createFountainTransfer(file: File): Promise<FountainPlan> 
       const degree = degreeFromSeed(seed, blocks, degreeCdf);
       const indexes = indexesFor(seed, blocks, degree);
       const payload = new Uint8Array(FOUNTAIN_BLOCK_BYTES);
-      for (const index of indexes) xorInto(payload, source[index]);
+      for (const index of indexes) {
+        const start = index * FOUNTAIN_BLOCK_BYTES;
+        xorInto(
+          payload,
+          bytes.subarray(start, Math.min(bytes.length, start + FOUNTAIN_BLOCK_BYTES)),
+        );
+      }
 
       return [
         FOUNTAIN_PREFIX + session,

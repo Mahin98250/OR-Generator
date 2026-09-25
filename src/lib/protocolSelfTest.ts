@@ -1,4 +1,5 @@
 import { analyzeScan } from './scan';
+import { QrEncodePool } from './qrEncodePool';
 import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
   addMultiImageChunk,
@@ -322,6 +323,26 @@ async function fountainSeedContinuity() {
   return '2,000 deterministic random seeds + systematic source coverage verified';
 }
 
+async function qrEncoderWorkerDiagnostic() {
+  if (typeof Worker === 'undefined') return 'Worker API unavailable; compatibility renderer retained';
+  const pool = new QrEncodePool(1);
+  try {
+    assert(pool.capacity >= 1, 'QR encoder worker could not be initialized.');
+    const result = await pool.encode([
+      'OptiCode worker diagnostic',
+      'https://example.com/opticode-worker',
+      'OptiCode worker diagnostic',
+      'WIFI:T:WPA;S:OptiCode-Test;P:worker-pass;;',
+    ]);
+    assert(result.matrices.length === 4, 'QR encoder worker returned the wrong matrix count.');
+    assert(result.matrices.every(matrix => matrix.size > 0 && matrix.data.length === matrix.size * matrix.size), 'QR encoder worker returned an invalid matrix.');
+    assert(result.cacheHits === 1, 'QR encoder matrix cache did not hit for a repeated payload.');
+    return result.cacheHits + ' cache hit · ' + result.workerJobs + ' worker job(s) · ' + Math.round(result.encodeMs) + ' ms encode pipeline';
+  } finally {
+    pool.dispose();
+  }
+}
+
 async function scanFormatCompatibility() {
   const cases = [
     { input: 'https://example.com', kind: 'url', title: 'Website' },
@@ -446,6 +467,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OR Transfer · fountain round trip', fountainRoundTrip),
     runCase('OR Transfer · fountain recovery stress', fountainRecoveryStress),
     runCase('OR Transfer · fountain seed continuity', fountainSeedContinuity),
+    runCase('Performance · QR encoder worker', qrEncoderWorkerDiagnostic),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
