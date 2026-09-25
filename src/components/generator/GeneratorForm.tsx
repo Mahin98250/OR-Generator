@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Link2, Loader2, RotateCcw, Layers3, Download } from 'lucide-react';
 import QRCode from 'qrcode';
 import { GlassButton } from '../ui/GlassButton';
@@ -9,8 +9,9 @@ export function GeneratorForm() {
   const { settings, setSettings } = useGenerator();
   const [imageMode, setImageMode] = useState(false);
   const [multiMode, setMultiMode] = useState(false);
-  const [multiCodes, setMultiCodes] = useState<string[]>([]);
-  const [multiIndex, setMultiIndex] = useState(0);
+  const [multiPlan, setMultiPlan] = useState<Awaited<ReturnType<typeof encodeImageForMultiQr>> | null>(null);
+  const [multiQr, setMultiQr] = useState('');
+  const [multiIndex, setMultiIndex] = useState(1);
   const [imageName, setImageName] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [imageInfo, setImageInfo] = useState('');
@@ -19,19 +20,40 @@ export function GeneratorForm() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isValid = useMemo(() => settings.value.trim().length > 0, [settings.value]);
 
+  useEffect(() => {
+    if (!multiPlan) {
+      setMultiQr('');
+      return;
+    }
+
+    let cancelled = false;
+    void multiPlan.getChunk(multiIndex)
+      .then(chunk => QRCode.toDataURL(chunk, {
+        width: settings.size,
+        margin: settings.margin,
+        errorCorrectionLevel: 'L',
+      }))
+      .then(url => {
+        if (!cancelled) setMultiQr(url);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Unable to render this Multi-QR frame.');
+      });
+
+    return () => { cancelled = true; };
+  }, [multiPlan, multiIndex, settings.size, settings.margin]);
+
+
   async function chooseImage(file?: File) {
     if (!file) return;
     setError(''); setEncoding(true);
     try {
       if (multiMode) {
         const encoded = await encodeImageForMultiQr(file);
-        const urls: string[] = [];
-        for (const chunk of encoded.chunks) {
-          urls.push(await QRCode.toDataURL(chunk, { width: settings.size, margin: settings.margin, errorCorrectionLevel: 'L' }));
-        }
-        setImageMode(true); setImageName(file.name); setMultiCodes(urls); setMultiIndex(0);
+        const firstChunk = await encoded.getChunk(1);
+        setImageMode(true); setImageName(file.name); setMultiPlan(encoded); setMultiIndex(1);
         setImagePreview(''); setImageInfo(`Original file preserved · ${(encoded.size / 1024 / 1024).toFixed(2)} MB · ${encoded.total} QR frames`);
-        setSettings(prev => ({ ...prev, value: encoded.chunks[0], errorCorrectionLevel: 'L' }));
+        setSettings(prev => ({ ...prev, value: firstChunk, errorCorrectionLevel: 'L' }));
       } else {
         try {
           const encoded = await encodeImageForQr(file);
@@ -43,13 +65,10 @@ export function GeneratorForm() {
           // to lossless Multi-QR instead of leaving the previous QR visible.
           if (singleError instanceof Error && singleError.message.includes('Multi-QR Photo')) {
             const encoded = await encodeImageForMultiQr(file);
-            const urls: string[] = [];
-            for (const chunk of encoded.chunks) {
-              urls.push(await QRCode.toDataURL(chunk, { width: settings.size, margin: settings.margin, errorCorrectionLevel: 'L' }));
-            }
-            setImageMode(true); setMultiMode(true); setImageName(file.name); setMultiCodes(urls); setMultiIndex(0);
+            const firstChunk = await encoded.getChunk(1);
+            setImageMode(true); setMultiMode(true); setImageName(file.name); setMultiPlan(encoded); setMultiIndex(1);
             setImagePreview(''); setImageInfo(`Original file preserved · ${(encoded.size / 1024 / 1024).toFixed(2)} MB · ${encoded.total} QR frames`);
-            setSettings(prev => ({ ...prev, value: encoded.chunks[0], errorCorrectionLevel: 'L' }));
+            setSettings(prev => ({ ...prev, value: firstChunk, errorCorrectionLevel: 'L' }));
           } else {
             throw singleError;
           }
@@ -60,7 +79,7 @@ export function GeneratorForm() {
     } finally { setEncoding(false); }
   }
   function reset() {
-    setImageMode(false); setMultiMode(false); setImageName(''); setImagePreview(''); setImageInfo(''); setError(''); setMultiCodes([]); setMultiIndex(0);
+    setImageMode(false); setMultiMode(false); setImageName(''); setImagePreview(''); setImageInfo(''); setError(''); setMultiPlan(null); setMultiQr(''); setMultiIndex(1);
     setSettings(prev => ({ ...prev, value: '' }));
   }
 
@@ -83,7 +102,41 @@ export function GeneratorForm() {
 
     {imageMode ? <div className="rounded-[24px] border border-cyan-300/20 bg-cyan-300/[.06] p-4">
       <div className="flex gap-4">{imagePreview && <img src={imagePreview} alt="Selected photo" className="h-24 w-24 shrink-0 rounded-2xl object-cover" />}<div className="min-w-0"><p className="text-sm font-bold text-[var(--text)]">Photo ready</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{imageName}</p><p className="mt-1 text-xs text-cyan-200">{imageInfo}</p><p className="mt-2 text-xs leading-5 text-[var(--text-muted)]">{multiMode ? 'Every original file byte is preserved. The photo is split across multiple QR frames and reconstructed byte-for-byte by the scanner. No server or upload is required.' : 'The photo is optimized locally to the highest resolution that can fit into one QR. No server or upload is required. If the original pixel dimensions fit, they are preserved.'}</p></div></div>
-      {multiCodes.length > 0 && <div className="mt-4 rounded-2xl border border-cyan-300/20 bg-black/10 p-3"><div className="flex items-center justify-between text-xs font-bold text-[var(--text)]"><span>Frame {multiIndex + 1} / {multiCodes.length}</span><button type="button" onClick={() => { const a=document.createElement('a'); a.href=multiCodes[multiIndex]; a.download=`photo-qr-${String(multiIndex+1).padStart(4,'0')}.png`; a.click(); }} className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-2 text-slate-950"><Download size={13}/> Save frame</button></div><div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6">{multiCodes.map((url,i)=><button type="button" key={url} onClick={() => { setMultiIndex(i); }} className={`rounded-xl border p-1 ${i===multiIndex?'border-cyan-300':'border-white/10'}`}><img src={url} alt={`QR frame ${i+1}`} className="w-full rounded-lg"/></button>)}</div></div>}
+      {multiPlan && (
+        <div className="mt-4 rounded-2xl border border-cyan-300/20 bg-black/10 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-[var(--text)]">
+            <span>Frame {multiIndex} / {multiPlan.total}</span>
+            <button
+              type="button"
+              disabled={!multiQr}
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = multiQr;
+                a.download = `photo-qr-${String(multiIndex).padStart(5, '0')}.png`;
+                a.click();
+              }}
+              className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-2 text-slate-950 disabled:opacity-50"
+            >
+              <Download size={13}/> Save frame
+            </button>
+          </div>
+          {multiQr && <img src={multiQr} alt={`Multi-QR frame ${multiIndex} of ${multiPlan.total}`} className="mx-auto mt-4 max-h-[520px] w-full max-w-[720px] rounded-xl object-contain bg-white p-3" />}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <button type="button" disabled={multiIndex <= 1} onClick={async () => {
+              const next = Math.max(1, multiIndex - 1);
+              setMultiIndex(next);
+              setSettings(prev => ({ ...prev, value: await multiPlan.getChunk(next), errorCorrectionLevel: 'L' }));
+            }} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold disabled:opacity-40">Previous</button>
+            <button type="button" disabled={multiIndex >= multiPlan.total} onClick={async () => {
+              const next = Math.min(multiPlan.total, multiIndex + 1);
+              setMultiIndex(next);
+              setSettings(prev => ({ ...prev, value: await multiPlan.getChunk(next), errorCorrectionLevel: 'L' }));
+            }} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold disabled:opacity-40">Next</button>
+          </div>
+          <p className="mt-3 text-center text-[11px] leading-5 text-[var(--text-muted)]">Frames are generated on demand, so large photos do not load thousands of QR images into memory at once.</p>
+        </div>
+      )}
+
       <div className="mt-4 flex gap-2"><GlassButton type="button" onClick={() => inputRef.current?.click()} disabled={encoding}><ImagePlus size={14}/> Replace photo</GlassButton><GlassButton type="button" onClick={reset}><RotateCcw size={14}/> Reset</GlassButton></div>
     </div> : <div className="space-y-2.5">
       <div className="flex items-center justify-between"><label className="text-xs font-bold uppercase tracking-[.18em] text-[var(--text-muted)]">Content</label><span className="text-xs text-[var(--text-muted)]">{settings.value.length} chars</span></div>
