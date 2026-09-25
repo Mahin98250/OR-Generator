@@ -300,8 +300,7 @@ export function OptiFrameLab() {
         bytes: receiver.bytes,
         missing: receiver.missing,
         complete: receiver.complete,
-        payload: undefined as Uint8Array | undefined,
-      };
+      } as ReturnType<OptiFrameAssembler['add']>;
       let duplicateCount = 0;
       let workerCount = 0;
       let localCount = 0;
