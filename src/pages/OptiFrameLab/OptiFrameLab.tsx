@@ -205,6 +205,8 @@ export function OptiFrameLab() {
   }
 
   function stopCamera() {
+    acquisitionTestRef.current = false;
+    setAcquisitionTest(previous => ({ ...previous, running: false }));
     if (loopRef.current !== null) {
       window.clearTimeout(loopRef.current);
       loopRef.current = null;
@@ -559,6 +561,9 @@ export function OptiFrameLab() {
     setCameraDecoded('');
     setAcquisition({ stage: 'searching', anchors: [], confidence: 0, moduleScale: 0, angle: 0, geometryRatio: 0, sampleWidth: 0, sampleHeight: 0, elapsedMs: 0 });
     acquisitionFailureRef.current = 0;
+    acquisitionTestRef.current = false;
+    acquisitionTestMetricsRef.current = emptyAcquisitionTest();
+    setAcquisitionTest(emptyAcquisitionTest());
     setCameraStats({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0, cameraWidth: 0, cameraHeight: 0, cameraFrameRate: 0, startedAt: performance.now() });
 
     try {
