@@ -1,4 +1,4 @@
-const CACHE = 'or-generator-v2';
+const CACHE = 'opticode-studio-v3';
 const BASE = '/OR-Generator/';
 const SHELL = [BASE, BASE + 'manifest.webmanifest'];
 
