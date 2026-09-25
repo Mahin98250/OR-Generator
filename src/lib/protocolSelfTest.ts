@@ -1,3 +1,4 @@
+import { analyzeScan } from './scan';
 import {
   addMultiImageChunk,
   clearMultiImage,
@@ -241,6 +242,42 @@ async function multiImageMissingRecovery() {
   return missing.length + ' missing frame(s) correctly surfaced after partial receipt';
 }
 
+
+async function scanClassification() {
+  const transferRaw = 'ORX1:diagnostic|application%2Foctet-stream|ZGlhZ25vc3RpYy5iaW4|1200|' + 'a'.repeat(64) + '|2|4|' + 'A'.repeat(1200);
+  const transfer = analyzeScan(transferRaw, 'QR CODE');
+  assert(transfer.kind === 'or-transfer', 'OR Transfer frames are not classified by the scanner analyzer.');
+  assert(transfer.actionUrl === '#/transfer', 'OR Transfer analyzer does not provide the transfer route.');
+  assert(transfer.meta.Frame === '2 / 4', 'OR Transfer frame metadata is incorrect.');
+
+  const wifi = analyzeScan('WIFI:T:WPA;S:DiagnosticNet;P:test-pass;;', 'QR CODE');
+  assert(wifi.kind === 'wifi', 'Wi-Fi payload was not classified.');
+
+  const upi = analyzeScan('upi://pay?pa=test@upi&pn=Diagnostic&am=10', 'QR CODE');
+  assert(upi.kind === 'upi', 'UPI payload was not classified.');
+
+  const url = analyzeScan('https://example.com/path?q=qr', 'QR CODE');
+  assert(url.kind === 'url' && url.actionUrl === 'https://example.com/path?q=qr', 'HTTPS URL classification failed.');
+
+  const barcode = analyzeScan('012345678905', 'UPC-A');
+  assert(barcode.kind === 'barcode', 'UPC-A payload was not classified as a barcode.');
+
+  return 'OR Transfer + Wi-Fi + UPI + HTTPS + barcode classification passed';
+}
+
+async function parserValidation() {
+  const transferMalformed = 'ORX1:session|application%2Foctet-stream|Zg|1|not-a-hash|1|1|A';
+  assert(parseTransferFrame(transferMalformed) === null, 'Malformed OR Transfer hash was accepted.');
+
+  const multiMalformed = 'ORMIMG1:session|image%2Fpng|Zm9v|not-a-hash|1|1|A';
+  assert(parseMultiImageQr(multiMalformed) === null, 'Malformed Multi-QR hash was accepted.');
+
+  const transferOversized = 'ORX1:session|application%2Foctet-stream|Zg|1|' + 'a'.repeat(64) + '|1|1|' + 'A'.repeat(1201);
+  assert(parseTransferFrame(transferOversized) === null, 'Oversized OR Transfer payload was accepted.');
+
+  return 'Malformed hashes and oversized payloads were rejected before storage';
+}
+
 export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult[]> {
   if (!('indexedDB' in window)) {
     return [{
@@ -257,6 +294,8 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
     runCase('Multi-QR Photo · missing-frame recovery', multiImageMissingRecovery),
+    runCase('Scanner · payload classification', scanClassification),
+    runCase('Protocol · parser validation', parserValidation),
     runCase('Scanner · format compatibility', scanFormatCompatibility),
   ]);
 }
