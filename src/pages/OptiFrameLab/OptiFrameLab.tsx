@@ -27,6 +27,22 @@ type CameraStats = {
 };
 
 
+type OptiVideoCapabilities = MediaTrackCapabilities & {
+  focusMode?: string[];
+  resizeMode?: string[];
+};
+
+type OptiVideoConstraintSet = MediaTrackConstraintSet & {
+  focusMode?: ConstrainDOMString;
+  resizeMode?: ConstrainDOMString;
+};
+
+type OptiVideoTrackConstraints = MediaTrackConstraints & {
+  focusMode?: ConstrainDOMString;
+  resizeMode?: ConstrainDOMString;
+  advanced?: OptiVideoConstraintSet[];
+};
+
 type AcquisitionTestStageCounts = Record<OptiFrameAcquisitionDiagnostics['stage'], number>;
 
 type AcquisitionTestState = {
@@ -586,14 +602,14 @@ export function OptiFrameLab() {
       streamRef.current = stream;
       const track = stream.getVideoTracks()[0];
       const settings = track?.getSettings();
-      const capabilities = track?.getCapabilities?.();
+      const capabilities = track?.getCapabilities?.() as OptiVideoCapabilities | undefined;
       setCameraCapabilities(capabilities ? Object.keys(capabilities).filter(key => ['width','height','frameRate','focusMode','zoom','torch','resizeMode'].includes(key)) : []);
 
       if (track && capabilities) {
         const focusModes = capabilities.focusMode;
         const resizeModes = capabilities.resizeMode;
         try {
-          const cameraConstraints: MediaTrackConstraints = {
+          const cameraConstraints: OptiVideoTrackConstraints = {
             width: { ideal: Math.min(1920, capabilities.width?.max ?? 1920) },
             height: { ideal: Math.min(1080, capabilities.height?.max ?? 1080) },
             frameRate: { ideal: Math.min(30, capabilities.frameRate?.max ?? 30) },
@@ -604,7 +620,7 @@ export function OptiFrameLab() {
           if (Array.isArray(focusModes) && focusModes.includes('continuous')) {
             cameraConstraints.advanced = [{ focusMode: 'continuous' }];
           }
-          await track.applyConstraints(cameraConstraints);
+          await track.applyConstraints(cameraConstraints as MediaTrackConstraints);
         } catch {
           // Keep the stream if the browser rejects an optional camera optimization.
         }
