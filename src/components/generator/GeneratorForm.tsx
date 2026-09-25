@@ -21,7 +21,7 @@ export function GeneratorForm() {
     try {
       const encoded = await encodeImageForQr(file);
       setImageMode(true); setImageName(file.name); setImagePreview(encoded.previewUrl);
-      setImageInfo(`${encoded.width}×${encoded.height} · compact image payload`);
+      setImageInfo(`${encoded.width}×${encoded.height} · ${encoded.preservedDimensions ? 'original pixel dimensions preserved' : 'highest resolution that fits one QR'}`);
       setSettings(prev => ({ ...prev, value: encoded.payload, errorCorrectionLevel: 'L' }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to prepare this image.');
@@ -43,9 +43,13 @@ export function GeneratorForm() {
       <button type="button" onClick={() => inputRef.current?.click()} disabled={encoding} className={`rounded-xl px-4 py-3 text-sm font-bold ${imageMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}>{encoding ? <Loader2 size={15} className="mr-2 inline animate-spin" /> : <ImagePlus size={15} className="mr-2 inline" />}Photo → QR</button>
     </div>
     <input ref={inputRef} type="file" accept="image/*" className="sr-only" onChange={e => { void chooseImage(e.target.files?.[0]); e.currentTarget.value=''; }} />
+    <div className="grid grid-cols-2 gap-2">
+      <button type="button" onClick={() => { const input = inputRef.current; if (input) { input.setAttribute('capture', 'environment'); input.click(); input.removeAttribute('capture'); } }} disabled={encoding} className="rounded-2xl border border-cyan-300/20 bg-cyan-300/[.06] px-4 py-3 text-xs font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:opacity-50">Take photo</button>
+      <button type="button" onClick={() => inputRef.current?.click()} disabled={encoding} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] px-4 py-3 text-xs font-bold text-[var(--text)] transition hover:bg-white/5 disabled:opacity-50">Choose from gallery</button>
+    </div>
 
     {imageMode ? <div className="rounded-[24px] border border-cyan-300/20 bg-cyan-300/[.06] p-4">
-      <div className="flex gap-4">{imagePreview && <img src={imagePreview} alt="Selected photo" className="h-24 w-24 shrink-0 rounded-2xl object-cover" />}<div className="min-w-0"><p className="text-sm font-bold text-[var(--text)]">Photo ready</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{imageName}</p><p className="mt-1 text-xs text-cyan-200">{imageInfo}</p><p className="mt-2 text-xs leading-5 text-[var(--text-muted)]">The compressed photo is stored directly inside the QR. No server or upload is required.</p></div></div>
+      <div className="flex gap-4">{imagePreview && <img src={imagePreview} alt="Selected photo" className="h-24 w-24 shrink-0 rounded-2xl object-cover" />}<div className="min-w-0"><p className="text-sm font-bold text-[var(--text)]">Photo ready</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{imageName}</p><p className="mt-1 text-xs text-cyan-200">{imageInfo}</p><p className="mt-2 text-xs leading-5 text-[var(--text-muted)]">The photo is optimized locally to the highest resolution that can fit into one QR. No server or upload is required. If the original pixel dimensions fit, they are preserved.</p></div></div>
       <div className="mt-4 flex gap-2"><GlassButton type="button" onClick={() => inputRef.current?.click()} disabled={encoding}><ImagePlus size={14}/> Replace photo</GlassButton><GlassButton type="button" onClick={reset}><RotateCcw size={14}/> Reset</GlassButton></div>
     </div> : <div className="space-y-2.5">
       <div className="flex items-center justify-between"><label className="text-xs font-bold uppercase tracking-[.18em] text-[var(--text-muted)]">Content</label><span className="text-xs text-[var(--text-muted)]">{settings.value.length} chars</span></div>
