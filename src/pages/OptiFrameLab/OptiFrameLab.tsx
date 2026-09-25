@@ -512,7 +512,7 @@ export function OptiFrameLab() {
     <section className="mx-auto max-w-7xl py-8 sm:py-12">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">Phase 2 · Experimental optical layer</p>
+          <p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">Phase 4 · High-speed optical engine</p>
           <h1 className="mt-2 text-4xl font-black text-[var(--text)] sm:text-6xl">OptiFrame Lab</h1>
           <p className="mt-4 max-w-4xl text-sm leading-7 text-[var(--text-muted)]">Custom 128×128 protocol frames rendered at a larger physical raster, with four luminance levels, rotationally tolerant finder anchors, perspective correction, CRC-32, parallel lanes and multi-frame reassembly. This is a research layer, not a claim of benchmarked superiority over QR.</p>
         </div>
@@ -542,7 +542,7 @@ export function OptiFrameLab() {
 
         <GlassCard>
           <div className="flex items-center justify-between gap-3">
-            <div><p className="text-sm font-bold text-[var(--text)]">Optical surface</p><p className="mt-1 text-[10px] uppercase tracking-[.14em] text-[var(--text-muted)]">{OPTIFRAME_SIZE}×{OPTIFRAME_SIZE} lanes · 4 luminance levels</p></div>
+            <div><p className="text-sm font-bold text-[var(--text)]">Optical surface</p><p className="mt-1 text-[10px] uppercase tracking-[.14em] text-[var(--text-muted)]">{OPTIFRAME_SIZE}×{OPTIFRAME_SIZE} protocol · 1× renders 768 px · 2×/4× render 384 px lanes</p></div>
             <span className="rounded-full border border-[var(--border)] px-3 py-2 text-[10px] font-bold text-[var(--text-muted)]">{streamPayload.length} stream frame{streamPayload.length === 1 ? '' : 's'}</span>
           </div>
           <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><div><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">Parallel lanes</p><p className="mt-1 text-xs text-[var(--text-muted)]">Each lane carries an independent OptiFrame.</p></div><div className="flex rounded-full border border-[var(--border)] p-1">{([1, 2, 4] as OptiLaneCount[]).map(count => <button key={count} onClick={() => setLaneCount(count)} className={laneCount === count ? 'rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-slate-950' : 'rounded-full px-3 py-1.5 text-[10px] font-black text-[var(--text-muted)]'}>{count}×</button>)}</div></div>
@@ -577,6 +577,9 @@ export function OptiFrameLab() {
         <GlassCard>
           <div className="flex items-center justify-between gap-3">
             <div><div className="flex items-center gap-2 text-sm font-bold text-[var(--text)]">{cameraOn ? <CheckCircle2 size={16} className="text-emerald-300"/> : <ScanLine size={16} className="text-cyan-300"/>} Live camera receiver</div><p className="mt-1 text-xs text-[var(--text-muted)]">Perspective correction runs locally on the browser using the four finder anchors. Camera frames never leave the device.</p></div>
+            <div className={`rounded-full border px-3 py-2 text-[10px] font-black tracking-[.12em] ${cameraStats.hits ? 'border-emerald-300/20 bg-emerald-300/10 text-emerald-300' : cameraOn ? 'border-amber-300/20 bg-amber-300/10 text-amber-200' : 'border-[var(--border)] text-[var(--text-muted)]'}`}>
+              {cameraStats.hits ? 'OPTICAL LOCK' : cameraOn ? 'SEARCHING' : 'OFFLINE'}
+            </div>
             <button onClick={() => void (cameraOn ? stopCamera() : startCamera())} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950">{cameraOn ? <CameraOff size={14}/> : <Camera size={14}/>} {cameraOn ? 'Stop camera' : 'Start camera'}</button>
           </div>
           <div className="mt-4 overflow-hidden rounded-[26px] bg-black">
