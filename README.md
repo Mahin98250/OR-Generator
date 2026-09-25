@@ -14,6 +14,7 @@ OptiCode Studio is an all-in-one, privacy-first QR, barcode and optical file-tra
 - Local Scan Analytics
 - OptiTransfer 2.0 with four-lane QR streaming, fountain recovery and SHA-256 verification
 - Worker-based QR encoding with a four-group prefetch pipeline and synchronous browser fallback
+- Experimental OptiFrame v1 codec: 16-level grayscale optical symbols with finder patterns and CRC integrity checks
 - 10-second physical optical benchmark for measured receiver performance
 - Browser-side protocol diagnostics and recovery stress tests
 - Dark, light and system themes with contrast-aware light-mode styling
