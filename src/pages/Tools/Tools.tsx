@@ -21,6 +21,7 @@ import {
   Upload,
   XCircle,
   Zap,
+  Binary,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { GlassCard } from '../../components/ui/GlassCard';
@@ -71,6 +72,7 @@ const tools = [
   { to: '/generator', icon: Layers3, eyebrow: 'Create', title: 'Photo → QR + Multi-QR', text: 'Encode a photo into one QR when it fits or split the original bytes across lossless Multi-QR frames.', badge: 'Advanced' },
   { to: '/scanner', icon: ScanLine, eyebrow: 'Scan', title: 'QR + Barcode Scanner', text: 'Use the camera or images for QR, EAN, UPC, Code 128/39, Data Matrix, PDF417 and more.', badge: 'Core' },
   { to: '/transfer', icon: Zap, eyebrow: 'Transfer', title: 'Optical File Transfer', text: 'Send files screen-to-camera with four QR lanes, fountain recovery and an on-device benchmark.', badge: 'OR Transfer 2.0' },
+  { to: '/optiframe', icon: Binary, eyebrow: 'Experimental', title: 'OptiFrame Lab', text: 'Test a custom 2-bit optical symbol surface beyond QR with metadata and CRC-32.', badge: 'Phase 2' },
   { to: '/tools', icon: ScanBarcode, eyebrow: 'Inspect', title: 'Barcode Lab', text: 'Normalize UPC/EAN/ISBN values and verify check digits locally without a product database.', badge: 'Local' },
   { to: '/history', icon: HistoryIcon, eyebrow: 'Organize', title: 'Scan Library', text: 'Search, tag, favorite, copy, open and back up your local scan history.', badge: 'Private' },
   { to: '/statistics', icon: BarChart3, eyebrow: 'Analyze', title: 'Scan Analytics', text: 'See scan totals, barcode/QR mix, favorites, activity and tag collections.', badge: 'Private' },

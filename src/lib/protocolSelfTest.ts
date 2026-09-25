@@ -1,5 +1,6 @@
 import { analyzeScan } from './scan';
 import { QrEncodePool } from './qrEncodePool';
+import { optiFrameSelfTest } from './optiframe';
 import { decodeOptiFrame, encodeOptiFrame, renderOptiFrame } from './optiframe';
 import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
@@ -483,6 +484,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OR Transfer · fountain recovery stress', fountainRecoveryStress),
     runCase('OR Transfer · fountain seed continuity', fountainSeedContinuity),
     runCase('Performance · QR encoder worker', qrEncoderWorkerDiagnostic),
+    runCase('OptiFrame · custom codec round trip', async () => { const r = optiFrameSelfTest(); return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified'; }),
     runCase('Experimental · OptiFrame codec', optiFrameCodecDiagnostic),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
