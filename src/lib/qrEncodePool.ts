@@ -10,6 +10,13 @@ export type QrEncodeResult = {
   encodeMs: number;
 };
 
+type WorkerEncodeResult = {
+  id: number;
+  size: number;
+  data: ArrayBuffer;
+  processingMs: number;
+};
+
 type Pending = {
   value: string;
   resolve: (matrix: QrMatrix) => void;
@@ -102,7 +109,7 @@ export class QrEncodePool {
   private addWorker(index: number) {
     try {
       const worker = new Worker(new URL('../workers/qrEncoder.worker.ts', import.meta.url), { type: 'module' });
-      worker.onmessage = (event: MessageEvent<EncodeResult>) => {
+      worker.onmessage = (event: MessageEvent<WorkerEncodeResult>) => {
         const job = this.jobs.get(event.data.id);
         if (!job) return;
 
