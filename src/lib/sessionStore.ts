@@ -69,6 +69,13 @@ export async function getSession(key: string) {
   return requestResult<StoredSession | undefined>(tx.objectStore('sessions').get(key));
 }
 
+export async function getSessions(type?: StoredSession['type']) {
+  const db = await openDb();
+  const tx = db.transaction('sessions', 'readonly');
+  const items = await requestResult<StoredSession[]>(tx.objectStore('sessions').getAll());
+  return type ? items.filter(item => item.type === type) : items;
+}
+
 export async function putSession(session: StoredSession) {
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
