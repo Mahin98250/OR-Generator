@@ -18,7 +18,7 @@ export function Transfer() {
   const [receiving,setReceiving]=useState(false);
   const [playing,setPlaying]=useState(false);
   const [intervalMs,setIntervalMs]=useState(1000);
-  const [progress,setProgress]=useState<{session:string;received:number;total:number;name:string;missing:number[];duplicates:number}|null>(null);
+  const [progress,setProgress]=useState<{session:string;received:number;total:number;name:string;missingCount:number;missing:number[]|null;duplicates:number}|null>(null);
   const [result,setResult]=useState<{url:string;name:string;size:number}|null>(null);
   const inputRef=useRef<HTMLInputElement>(null);
   const videoRef=useRef<HTMLVideoElement>(null);
@@ -26,6 +26,7 @@ export function Transfer() {
   const receivingRef=useRef(false);
   const detectorRef=useRef<Detector|null>(null);
   const zxingRef=useRef<BrowserMultiFormatReader|null>(null);
+  const zxingControlsRef=useRef<{stop:()=>void}|null>(null);
   const playTimerRef=useRef<number|null>(null);
   const playerRef=useRef<HTMLDivElement>(null);
   const [fullscreen,setFullscreen]=useState(false);
@@ -46,19 +47,25 @@ export function Transfer() {
       for(const item of found) {
         const value=item.rawValue||''; if(!isTransferFrame(value))continue;
         const frame=parseTransferFrame(value); if(!frame)continue;
-        const added=addTransferFrame(frame);
+        const added=await addTransferFrame(frame);
         setProgress(prev => ({
           session:added.session,
           received:added.received,
           total:added.total,
           name:added.name,
-          missing:getTransferMissingFrames(added.session),
+          missingCount:added.missingCount,
+          missing:null,
           duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0),
         }));
         if(added.complete) {
           try {
             const rebuilt=await reconstructTransfer(added.session);
-            if(rebuilt){setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});setProgress(null);stopReceive();return;}
+            if(rebuilt){
+              setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});
+              setProgress(null);
+              stopReceive();
+              return;
+            }
           } catch(e) {
             setError(e instanceof Error?e.message:'Transfer verification failed.');
           }
@@ -86,18 +93,23 @@ export function Transfer() {
           if(!value || !isTransferFrame(value)) return;
           const frame=parseTransferFrame(value); if(!frame) return;
           try {
-            const added=addTransferFrame(frame);
+            const added=await addTransferFrame(frame);
             setProgress(prev => ({
               session:added.session,
               received:added.received,
               total:added.total,
               name:added.name,
-              missing:added.missing,
+              missingCount:added.missingCount,
+              missing:null,
               duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0),
             }));
             if(added.complete){
               const rebuilt=await reconstructTransfer(added.session);
-              if(rebuilt){setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});setProgress(null);stopReceive();}
+              if(rebuilt){
+                setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});
+                setProgress(null);
+                stopReceive();
+              }
             }
           } catch(e) {
             setError(e instanceof Error?e.message:'Transfer verification failed.');
@@ -135,14 +147,19 @@ export function Transfer() {
         <div>
           <div className="flex flex-wrap gap-2">
             <button onClick={()=>receiving?stopReceive():void startReceive()} className="rounded-full bg-white px-5 py-3 text-sm font-bold text-slate-950">{receiving?'Stop camera':'Start receiving'}</button>
-            {progress&&<button onClick={()=>{clearTransfer(progress.session);setProgress(null);setError('');}} className="rounded-full bg-white/10 px-4 py-3 text-sm font-bold text-[var(--text)]">Reset session</button>}
+            {progress&&<button onClick={()=>{void clearTransfer(progress.session);setProgress(null);setError('');}} className="rounded-full bg-white/10 px-4 py-3 text-sm font-bold text-[var(--text)]">Reset session</button>}
           </div>
           {progress&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4">
             <p className="truncate text-sm font-bold">{progress.name}</p>
             <p className="mt-1 text-xs text-[var(--text-muted)]">{progress.received} / {progress.total} unique frames · {progress.duplicates} duplicate reads</p>
             <div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.round(progress.received/progress.total*100)}%`}}/></div>
-            {progress.missing.length>0&&<div className="mt-3 rounded-xl bg-white/5 p-3"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-cyan-300">Recovery status</p><p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{progress.missing.length} frame{progress.missing.length===1?'':'s'} still missing: {progress.missing.slice(0,24).join(', ')}{progress.missing.length>24?` +${progress.missing.length-24} more`:''}. Keep the sender looping and keep scanning.</p></div>}
-            {progress.missing.length===0&&<p className="mt-3 text-xs leading-5 text-emerald-300">All frames received. Verifying the original file…</p>}
+            {progress.missingCount>0&&<div className="mt-3 rounded-xl bg-white/5 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.14em] text-cyan-300">Recovery status</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{progress.missingCount} frame{progress.missingCount===1?'':'s'} still missing. Keep the sender looping and keep scanning.</p>
+              {progress.missing&&<p className="mt-1 break-words text-[11px] leading-5 text-[var(--text-muted)]">Missing: {progress.missing.slice(0,40).join(', ')}{progress.missing.length>40?` +${progress.missing.length-40} more`:''}</p>}
+              <button onClick={()=>{void (async()=>{const missing=await getTransferMissingFrames(progress.session);setProgress(prev=>prev?{...prev,missing}:prev);})();}} className="mt-3 rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-[var(--text)]">Show missing frames</button>
+            </div>}
+            {progress.missingCount===0&&<p className="mt-3 text-xs leading-5 text-emerald-300">All frames received. Verifying the original file…</p>}
           </div>}
           {result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><ShieldCheck className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}
           {error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}
