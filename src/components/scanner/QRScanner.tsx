@@ -103,7 +103,7 @@ export function QRScanner() {
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
   const [imageResult, setImageResult] = useState('');
   const [multiImageResult, setMultiImageResult] = useState<{ url:string; name:string; size:number } | null>(null);
-  const [multiProgress, setMultiProgress] = useState<{ id:string; received:number; total:number; missing:number[] } | null>(null);
+  const [multiProgress, setMultiProgress] = useState<{ id:string; received:number; total:number; missingCount:number; missing:number[] | null } | null>(null);
 
   useEffect(() => () => stopCamera(), []);
   useEffect(() => () => {
@@ -308,14 +308,15 @@ export function QRScanner() {
       if (!parsed) { setError('This Multi-QR photo frame is invalid.'); return; }
 
       try {
-        const progress = addMultiImageChunk(value);
+        const progress = await addMultiImageChunk(value);
         if (!progress) { setError('This Multi-QR photo frame is invalid.'); return; }
 
         setMultiProgress({
           id: parsed.id,
           received: progress.received,
           total: progress.total,
-          missing: getMultiImageMissingFrames(parsed.id),
+          missingCount: progress.missingCount,
+          missing: null,
         });
         setResult('');
         setAnalysis(null);
@@ -335,6 +336,7 @@ export function QRScanner() {
       }
       return;
     }
+
     const displayFormat = normalizeFormat(detectedFormat);
     const nextAnalysis = analyzeScan(value, displayFormat);
     setResult(value);
@@ -628,14 +630,27 @@ export function QRScanner() {
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{ width: `${Math.min(100, multiProgress.received / multiProgress.total * 100)}%` }} /></div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="min-w-0 text-xs leading-5 text-[var(--text-muted)]">
-              {multiProgress.missing.length
-                ? `Missing frames: ${multiProgress.missing.slice(0, 20).join(', ')}${multiProgress.missing.length > 20 ? ` +${multiProgress.missing.length - 20} more` : ''}`
-                : 'All frames received. Verifying the original image…'}
-            </p>
-            <GlassButton onClick={() => { clearMultiImage(multiProgress.id); setMultiProgress(null); setError(''); }}>
-              <RefreshCw size={14}/> Reset session
-            </GlassButton>
+            <div className="min-w-0 text-xs leading-5 text-[var(--text-muted)]">
+              {multiProgress.missingCount > 0
+                ? <span>{multiProgress.missingCount} frame{multiProgress.missingCount === 1 ? '' : 's'} still missing. Keep the sender looping and keep scanning.</span>
+                : <span className="text-emerald-300">All frames received. Verifying the original image…</span>}
+              {multiProgress.missing && multiProgress.missing.length > 0 && (
+                <p className="mt-1 break-words">Missing: {multiProgress.missing.slice(0, 40).join(', ')}{multiProgress.missing.length > 40 ? ` +${multiProgress.missing.length - 40} more` : ''}</p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {multiProgress.missingCount > 0 && (
+                <GlassButton onClick={() => { void (async () => {
+                  const missing = await getMultiImageMissingFrames(multiProgress.id);
+                  setMultiProgress(prev => prev ? { ...prev, missing } : prev);
+                })(); }}>
+                  <ScanLine size={14}/> Show missing
+                </GlassButton>
+              )}
+              <GlassButton onClick={() => { void clearMultiImage(multiProgress.id); setMultiProgress(null); setError(''); }}>
+                <RefreshCw size={14}/> Reset session
+              </GlassButton>
+            </div>
           </div>
         </div>
       )}
