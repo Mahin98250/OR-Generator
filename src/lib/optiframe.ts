@@ -156,8 +156,8 @@ export function encodeOptiFrame(payload: Uint8Array, sequence = 0, total = 1) {
 function toImageData(source: CanvasImageSource | ImageData) {
   if (source instanceof ImageData) return source;
 
-  const sourceWidth = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
-  const sourceHeight = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+  const sourceWidth = source instanceof HTMLVideoElement ? source.videoWidth : ('width' in source ? source.width : source.displayWidth);
+  const sourceHeight = source instanceof HTMLVideoElement ? source.videoHeight : ('height' in source ? source.height : source.displayHeight);
   if (!sourceWidth || !sourceHeight) return null;
 
   const maxDimension = 720;
@@ -377,7 +377,7 @@ function project(h: number[], u: number, v: number): [number, number] {
   ];
 }
 
-function estimateCalibration(image: ImageData, anchors: OptiFrameAnchor[]) {
+function estimateCalibration(image: ImageData, anchors: ReadonlyArray<OptiFrameAnchor>) {
   const values: { dark: number; light: number }[] = [];
   for (const anchor of anchors) {
     const { x: cx, y: cy, scale } = anchor;
