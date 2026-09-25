@@ -14,10 +14,10 @@ OptiCode Studio is an all-in-one, privacy-first QR, barcode and optical file-tra
 - Local Scan Analytics
 - OptiTransfer 2.0 with four-lane QR streaming, fountain recovery and SHA-256 verification
 - Worker-based QR encoding with a four-group prefetch pipeline and synchronous browser fallback
-- Experimental OptiFrame v1 codec: 16-level grayscale optical symbols with finder patterns and CRC integrity checks
-- 10-second physical optical benchmark for measured receiver performance
-- Browser-side protocol diagnostics and recovery stress tests
-- Phase 3 OptiFrame receiver hardening: worker-backed perspective decoding with adaptive camera scan cadence
+- Experimental OptiFrame v1 codec: four-level grayscale / 2-bit optical symbols with four finder patterns, perspective correction and CRC-32
+- Completion-timed 1 MB physical optical benchmark with sustained and best-≥1-second peak goodput
+- Browser-side protocol diagnostics, multi-lane tests and recovery stress tests (`#/diagnostics`)
+- Phase 4 OptiFrame receiver hardening: multi-worker perspective decoding, tracked-region acquisition and 1×/2×/4× lane decoding
 - Dark, light and system themes with contrast-aware light-mode styling
 - Installable PWA with GitHub Pages deployment
 
@@ -51,4 +51,4 @@ npm run dev
 npm run build
 ```
 
-The GitHub repository remains `Mahin98250/OR-Generator` so the existing GitHub Pages URL stays stable while the product branding is OptiCode Studio.
+The repository is `Mahin98250/OptiCode-Studio` and the GitHub Pages deployment uses the `/OptiCode-Studio/` base path.
