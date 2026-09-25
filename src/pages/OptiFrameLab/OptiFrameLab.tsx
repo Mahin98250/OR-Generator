@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, CameraOff, CheckCircle2, Copy, Download, FlaskConical, Pause, Play, RotateCcw, ScanLine, Upload, Zap } from 'lucide-react';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { GlassButton } from '../../components/ui/GlassButton';
-import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, OPTIFRAME_SIZE } from '../../lib/optiframe';
+import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, OPTIFRAME_SIZE, type OptiFramePerspectiveDiagnostics } from '../../lib/optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from '../../lib/optiframeStream';
 import { OptiFrameDecodePool } from '../../lib/optiframeDecodePool';
 
@@ -45,6 +45,9 @@ export function OptiFrameLab() {
   const decodePoolRef = useRef(new OptiFrameDecodePool());
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const seenSequenceRef = useRef(new Set<number>());
+  const trackedAnchorsRef = useRef<OptiFramePerspectiveDiagnostics['anchors'] | null>(null);
+  const framesSinceFullScanRef = useRef(0);
+  const reacquireEveryFrames = 12;
 
   const streamPayload = useMemo(() => {
     const payload = new TextEncoder().encode(text);
@@ -158,23 +161,98 @@ export function OptiFrameLab() {
     const image = context.getImageData(0, 0, width, height);
 
     const captureStarted = performance.now();
-    const workerJob = decodePoolRef.current.decode(image.data.buffer.slice(0), image.width, image.height);
-    if (!workerJob) {
-      setCameraStats(prev => ({ ...prev, attempts: prev.attempts + 1, dropped: prev.dropped + 1 }));
-      return;
-    }
+
+    const cropTrackedRegion = (source: ImageData) => {
+      const anchors = trackedAnchorsRef.current;
+      if (!anchors) return null;
+      const minX = Math.min(...anchors.map(anchor => anchor.x));
+      const maxX = Math.max(...anchors.map(anchor => anchor.x));
+      const minY = Math.min(...anchors.map(anchor => anchor.y));
+      const maxY = Math.max(...anchors.map(anchor => anchor.y));
+      const scale = anchors.reduce((sum, anchor) => sum + anchor.scale, 0) / anchors.length;
+      const padding = Math.max(18, scale * 12);
+      const side = Math.ceil(Math.max(maxX - minX, maxY - minY) + padding * 2);
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const x = Math.max(0, Math.min(source.width - side, Math.round(centerX - side / 2)));
+      const y = Math.max(0, Math.min(source.height - side, Math.round(centerY - side / 2)));
+      const width = Math.min(side, source.width - x);
+      const height = Math.min(side, source.height - y);
+      if (width < OPTIFRAME_SIZE || height < OPTIFRAME_SIZE) return null;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      const imageData = new ImageData(width, height);
+      for (let row = 0; row < height; row += 1) {
+        const srcStart = ((y + row) * source.width + x) * 4;
+        imageData.data.set(source.data.subarray(srcStart, srcStart + width * 4), row * width * 4);
+      }
+      return { image: imageData, offsetX: x, offsetY: y };
+    };
+
+    const runWorker = async (target: ImageData) => {
+      const job = decodePoolRef.current.decode(target.data.buffer.slice(0), target.width, target.height);
+      if (!job) return { result: null as Awaited<ReturnType<OptiFrameDecodePool['decode']>>, dropped: true };
+      try {
+        return { result: await job, dropped: false };
+      } catch {
+        return { result: null as Awaited<ReturnType<OptiFrameDecodePool['decode']>>, dropped: false };
+      }
+    };
+
+    const runLocal = (target: ImageData) => {
+      try {
+        return decodeOptiFramePerspective(target);
+      } catch {
+        return null;
+      }
+    };
 
     let workerResult: Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
     let result: ReturnType<typeof decodeOptiFramePerspective> | Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
-    try {
-      workerResult = await workerJob;
-      result = workerResult;
-    } catch {
-      try {
-        result = decodeOptiFramePerspective(image);
-      } catch {
-        result = null;
-      }
+    let cropOffset = { x: 0, y: 0 };
+    let usedTrackedCrop = false;
+    let usedFullScan = false;
+    let dropped = false;
+
+    const trackedCrop = cropTrackedRegion(image);
+    const shouldFullScan = !trackedCrop || framesSinceFullScanRef.current >= reacquireEveryFrames;
+    if (trackedCrop && !shouldFullScan) {
+      usedTrackedCrop = true;
+      const worker = await runWorker(trackedCrop.image);
+      workerResult = worker.result;
+      dropped = worker.dropped;
+      result = worker.result ?? runLocal(trackedCrop.image);
+      cropOffset = { x: trackedCrop.offsetX, y: trackedCrop.offsetY };
+    }
+
+    if (!result) {
+      usedFullScan = true;
+      const worker = await runWorker(image);
+      workerResult = worker.result;
+      dropped = dropped || worker.dropped;
+      result = worker.result ?? runLocal(image);
+      cropOffset = { x: 0, y: 0 };
+    }
+
+    if (result) {
+      framesSinceFullScanRef.current = usedFullScan ? 0 : framesSinceFullScanRef.current + 1;
+      const absoluteAnchors = result.diagnostics.anchors.map(anchor => ({
+        ...anchor,
+        x: anchor.x + cropOffset.x,
+        y: anchor.y + cropOffset.y,
+      })) as OptiFramePerspectiveDiagnostics['anchors'];
+      trackedAnchorsRef.current = absoluteAnchors;
+    } else {
+      framesSinceFullScanRef.current += 1;
+    }
+
+    if (dropped && !result) {
+      setCameraStats(prev => ({ ...prev, attempts: prev.attempts + 1, dropped: prev.dropped + 1 }));
+      return;
     }
 
     const elapsed = performance.now() - captureStarted;
@@ -189,6 +267,7 @@ export function OptiFrameLab() {
         workerHits: prev.workerHits + (workerResult ? 1 : 0),
         localHits: prev.localHits + (!workerResult && result ? 1 : 0),
         lastMs: elapsed,
+        dropped: prev.dropped + (dropped ? 1 : 0),
         captureFps: elapsedFromStart ? (prev.attempts + 1) / elapsedFromStart : 0,
         decodeFps: elapsedFromStart ? nextHits / elapsedFromStart : 0,
       };
@@ -241,6 +320,8 @@ export function OptiFrameLab() {
     setCameraError('');
     assemblerRef.current.reset();
     seenSequenceRef.current.clear();
+    trackedAnchorsRef.current = null;
+    framesSinceFullScanRef.current = 0;
     setReceiver({ total: 0, received: 0, bytes: 0, missing: [], complete: false });
     setCameraDecoded('');
     setCameraStats({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, startedAt: performance.now() });
@@ -277,6 +358,8 @@ export function OptiFrameLab() {
   function resetReceiver() {
     assemblerRef.current.reset();
     seenSequenceRef.current.clear();
+    trackedAnchorsRef.current = null;
+    framesSinceFullScanRef.current = 0;
     setReceiver({ total: 0, received: 0, bytes: 0, missing: [], complete: false });
     setCameraDecoded('');
     setCameraStats(prev => ({ ...prev, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0 }));
@@ -361,7 +444,7 @@ export function OptiFrameLab() {
           <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-[var(--text)]">Receiver state</p><p className="mt-1 text-xs text-[var(--text-muted)]">{receiver.total ? `${receiver.received}/${receiver.total} frames received` : 'Waiting for a frame.'}</p></div><button onClick={resetReceiver} className="rounded-full p-2 text-[var(--text-muted)] hover:bg-white/10" aria-label="Reset receiver"><RotateCcw size={16}/></button></div>
           {receiver.total > 0 && <><div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100, receiver.received / receiver.total * 100)}%`}}/></div><p className="mt-3 text-xs text-[var(--text-muted)]">{receiver.complete ? 'Complete payload reassembled in sequence order.' : `Missing: ${receiver.missing.slice(0, 18).join(', ')}${receiver.missing.length > 18 ? '…' : ''}`}</p></>}
           {cameraDecoded && <div className="mt-5 rounded-[22px] border border-emerald-300/20 bg-emerald-300/10 p-4"><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.14em] text-emerald-300"><CheckCircle2 size={14}/> Reassembled payload</p><p className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-[var(--text)]">{cameraDecoded}</p><button onClick={() => void navigator.clipboard?.writeText(cameraDecoded)} className="mt-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text)]"><Copy size={13}/> Copy payload</button></div>}
-          <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4"><p className="text-xs font-bold text-[var(--text)]">Lab status</p><p className="mt-1 text-xs leading-6 text-[var(--text-muted)]">This milestone adds a pure browser homography solver, adaptive luminance calibration, four-anchor finder detection, and sequence-aware reassembly. The production file-transfer path remains OptiTransfer 2.0 until this custom layer earns a physical benchmark.</p></div>
+          <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4"><p className="text-xs font-bold text-[var(--text)]">Lab status</p><p className="mt-1 text-xs leading-6 text-[var(--text-muted)]">This milestone adds tracked-region decoding: full-frame acquisition, tight crop tracking, periodic reacquisition, worker decoding, adaptive luminance calibration, homography correction, and sequence-aware reassembly. The production file-transfer path remains OptiTransfer 2.0 until this custom layer earns a physical benchmark.</p></div>
         </GlassCard>
       </div>
     </section>
