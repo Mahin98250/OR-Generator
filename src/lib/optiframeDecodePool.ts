@@ -130,6 +130,38 @@ export class OptiFrameDecodePool {
     });
   }
 
+  async decodeBatch(
+    jobs: Array<{ buffer: ArrayBuffer; width: number; height: number }>,
+  ): Promise<Array<OptiFrameWorkerResult | null>> {
+    if (jobs.length === 0) return [];
+
+    const results: Array<OptiFrameWorkerResult | null> = Array(jobs.length).fill(null);
+    let nextIndex = 0;
+    const workerCount = Math.max(1, this.capacity);
+
+    const run = async () => {
+      while (nextIndex < jobs.length) {
+        const index = nextIndex++;
+        const job = this.decode(jobs[index].buffer, jobs[index].width, jobs[index].height);
+        if (!job) {
+          // A worker may be temporarily saturated. Yield and retry rather
+          // than silently falling back to the main thread for queued lanes.
+          await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+          nextIndex = Math.min(nextIndex, index);
+          continue;
+        }
+        try {
+          results[index] = await job;
+        } catch {
+          results[index] = null;
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(workerCount, jobs.length) }, run));
+    return results;
+  }
+
   terminate() {
     for (const slot of this.workers) slot.worker.terminate();
     for (const pending of this.pending.values()) {
