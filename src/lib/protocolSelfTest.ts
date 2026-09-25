@@ -382,7 +382,7 @@ async function optiFrameWorkerDiagnostic() {
   const ctx = frame.canvas.getContext('2d', { willReadFrequently: true });
   assert(ctx, 'OptiFrame worker fixture canvas context unavailable.');
   const image = ctx.getImageData(0, 0, frame.canvas.width, frame.canvas.height);
-  const pool = new OptiFrameDecodePool(true);
+  const pool = new OptiFrameDecodePool(undefined, true);
 
   try {
     const result = await pool.decode(image.data.buffer.slice(0), image.width, image.height);
