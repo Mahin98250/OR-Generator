@@ -54,7 +54,7 @@ export function History() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `or-generator-library-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.download = `opticode-studio-library-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     setNotice('Library backup exported.');
