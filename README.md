@@ -1,17 +1,22 @@
 # OptiCode Studio
 
-OptiCode Studio is a premium, offline-first QR Code Generator & Scanner web app built with React, Vite, TypeScript, and Framer Motion.
+OptiCode Studio is an all-in-one, privacy-first QR, barcode and optical file-transfer workspace built with React, Vite, TypeScript and Framer Motion.
 
-## Features
+## What it includes
 
-- QR code generation with live preview
-- QR scanning from uploaded images
-- Offline-first friendly architecture
-- Premium glassmorphism UI
-- Dark, light, and system theme support
-- Accessible keyboard-friendly controls
-- Responsive layout for all screen sizes
-- Toast feedback and smooth motion
+- QR Code Generator with live preview and PNG / SVG / JPEG export
+- Photo → QR encoding with automatic single-QR sizing
+- Lossless Multi-QR photo/file framing for larger payloads
+- Smart QR + barcode scanner using camera, gallery and drag/drop images
+- QR, EAN, UPC, Code 128/39, Data Matrix, PDF417 and other supported scan formats
+- Barcode Lab for local UPC/EAN/ISBN normalization and check-digit validation
+- Scan Library with search, tags, favorites, backup and restore
+- Local Scan Analytics
+- OptiTransfer 2.0 with four-lane QR streaming, fountain recovery and SHA-256 verification
+- 10-second physical optical benchmark for measured receiver performance
+- Browser-side protocol diagnostics and recovery stress tests
+- Dark, light and system themes with contrast-aware light-mode styling
+- Installable PWA with GitHub Pages deployment
 
 ## Stack
 
@@ -22,24 +27,25 @@ OptiCode Studio is a premium, offline-first QR Code Generator & Scanner web app 
 - React Router
 - Lucide React
 - Sonner
-- QRCode
+- qrcode
 - jsQR
+- @zxing/browser
 
-## Getting started
+## Privacy model
+
+Camera frames, generated QR payloads and scan history are processed locally by the browser. The app does not require an account or a server-side scan database. External actions such as opening a website, search, email, map or payment URI are controlled by the device/browser after you choose them.
+
+## Development
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Build
+## Production build
 
 ```bash
 npm run build
 ```
 
-## Notes
-
-- This project is structured for production use.
-- The UI is designed to feel premium, fluid, and polished.
-- Scanner works with uploaded QR images. Browser camera support can be added later if needed.
+The GitHub repository remains `Mahin98250/OR-Generator` so the existing GitHub Pages URL stays stable while the product branding is OptiCode Studio.
