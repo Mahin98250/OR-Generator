@@ -30,7 +30,7 @@ export function Transfer() {
   const playerRef=useRef<HTMLDivElement>(null);
   const [fullscreen,setFullscreen]=useState(false);
 
-  useEffect(()=>{ if(!frames.length)return; let cancelled=false; QRCode.toDataURL(frames[index],{width:900,margin:3,errorCorrectionLevel:'M'}).then(v=>{if(!cancelled)setQr(v);}).catch(()=>setError('Unable to render transfer QR.')); return()=>{cancelled=true;}; },[frames,index]);
+  useEffect(()=>{ if(!frames.length)return; let cancelled=false; QRCode.toDataURL(frames[index],{width:900,margin:3,errorCorrectionLevel:'M'}).then((v: string)=>{if(!cancelled)setQr(v);}).catch(()=>setError('Unable to render transfer QR.')); return()=>{cancelled=true;}; },[frames,index]);
   useEffect(()=>()=>{ stopReceive(); stopPlayback(); },[]);
   useEffect(()=>{ const onFullscreen=()=>setFullscreen(document.fullscreenElement===playerRef.current); document.addEventListener('fullscreenchange',onFullscreen); return()=>document.removeEventListener('fullscreenchange',onFullscreen); },[]);
   useEffect(()=>{
@@ -70,7 +70,7 @@ export function Transfer() {
       } else {
         const reader=new BrowserMultiFormatReader();
         zxingRef.current=reader;
-        reader.decodeFromVideoDevice(undefined, videoRef.current, async (result) => {
+        reader.decodeFromVideoDevice(undefined, videoRef.current ?? undefined, async (result) => {
           const value=result?.getText?.() || '';
           if(!value || !isTransferFrame(value)) return;
           const frame=parseTransferFrame(value); if(!frame) return;
@@ -81,7 +81,7 @@ export function Transfer() {
       }
     } catch(e) { setError(e instanceof Error?e.message:'Camera permission was denied.'); setReceiving(false); receivingRef.current=false; }
   }
-  function stopReceive() { receivingRef.current=false; detectorRef.current=null; zxingRef.current?.reset(); zxingRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false); }
+  function stopReceive() { receivingRef.current=false; detectorRef.current=null; zxingRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false); }
   function stopPlayback() { setPlaying(false); if(playTimerRef.current!==null){window.clearInterval(playTimerRef.current);playTimerRef.current=null;} }
 
   async function enterFullscreen() { try { await playerRef.current?.requestFullscreen?.(); setFullscreen(true); } catch { setError('Fullscreen is not available on this browser.'); } }
