@@ -512,7 +512,7 @@ export function OptiFrameLab() {
           </div>
           <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><div><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">Parallel lanes</p><p className="mt-1 text-xs text-[var(--text-muted)]">Each lane carries an independent OptiFrame.</p></div><div className="flex rounded-full border border-[var(--border)] p-1">{([1, 2, 4] as OptiLaneCount[]).map(count => <button key={count} onClick={() => setLaneCount(count)} className={laneCount === count ? 'rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-slate-950' : 'rounded-full px-3 py-1.5 text-[10px] font-black text-[var(--text-muted)]'}>{count}×</button>)}</div></div>
           <div className="mt-5 grid place-items-center rounded-[26px] bg-white p-4">
-            {streamFrame ? <img src={streamFrame} alt="OptiFrame stream frame" className="block aspect-square w-full max-w-[560px] [image-rendering:pixelated]" /> : <div className="aspect-square w-full max-w-[560px]" />}
+            {streamFrame ? <img src={streamFrame} alt="OptiFrame stream frame" className="block aspect-square w-full max-w-[760px] [image-rendering:pixelated]" /> : <div className="aspect-square w-full max-w-[560px]" />}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <GlassButton onClick={() => setStreamPlaying(value => !value)}>{streamPlaying ? <Pause size={14}/> : <Play size={14}/>} {streamPlaying ? 'Pause stream' : 'Play stream'}</GlassButton>
