@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, CameraOff, CheckCircle2, Copy, Download, FlaskConical, Pause, Play, RotateCcw, ScanLine, Upload, Zap } from 'lucide-react';
+import { Activity, Camera, CameraOff, CheckCircle2, Copy, Crosshair, Download, FlaskConical, Pause, Play, RotateCcw, ScanLine, Timer, Upload, Zap } from 'lucide-react';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { GlassButton } from '../../components/ui/GlassButton';
 import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, inspectOptiFrameAcquisition, OPTIFRAME_SIZE, type OptiFrameAcquisitionDiagnostics, type OptiFramePerspectiveDiagnostics } from '../../lib/optiframe';
@@ -26,6 +26,46 @@ type CameraStats = {
   startedAt: number | null;
 };
 
+
+type AcquisitionTestStageCounts = Record<OptiFrameAcquisitionDiagnostics['stage'], number>;
+
+type AcquisitionTestState = {
+  running: boolean;
+  samples: number;
+  locks: number;
+  totalAnchors: number;
+  averageMs: number;
+  peakMs: number;
+  lastStage: OptiFrameAcquisitionDiagnostics['stage'];
+  stageCounts: AcquisitionTestStageCounts;
+};
+
+const ACQUISITION_TEST_SAMPLES = 30;
+
+function emptyAcquisitionStageCounts(): AcquisitionTestStageCounts {
+  return {
+    image: 0,
+    searching: 0,
+    anchors: 0,
+    geometry: 0,
+    calibration: 0,
+    ready: 0,
+  };
+}
+
+function emptyAcquisitionTest(): AcquisitionTestState {
+  return {
+    running: false,
+    samples: 0,
+    locks: 0,
+    totalAnchors: 0,
+    averageMs: 0,
+    peakMs: 0,
+    lastStage: 'image',
+    stageCounts: emptyAcquisitionStageCounts(),
+  };
+}
+
 export function OptiFrameLab() {
   const [text, setText] = useState('OptiCode experimental optical stream');
   const [seq, setSeq] = useState(0);
@@ -40,6 +80,7 @@ export function OptiFrameLab() {
   const [cameraStats, setCameraStats] = useState<CameraStats>({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0, cameraWidth: 0, cameraHeight: 0, cameraFrameRate: 0, startedAt: null });
   const [acquisition, setAcquisition] = useState<OptiFrameAcquisitionDiagnostics>({ stage: 'image', anchors: [], confidence: 0, moduleScale: 0, angle: 0, geometryRatio: 0, sampleWidth: 0, sampleHeight: 0, elapsedMs: 0 });
   const [cameraCapabilities, setCameraCapabilities] = useState<string[]>([]);
+  const [acquisitionTest, setAcquisitionTest] = useState<AcquisitionTestState>(emptyAcquisitionTest);
   const [streamPlaying, setStreamPlaying] = useState(false);
   const [streamIndex, setStreamIndex] = useState(0);
   const [laneCount, setLaneCount] = useState<OptiLaneCount>(1);
@@ -58,6 +99,8 @@ export function OptiFrameLab() {
   const trackedAnchorsRef = useRef<OptiFramePerspectiveDiagnostics['anchors'] | null>(null);
   const framesSinceFullScanRef = useRef(0);
   const acquisitionFailureRef = useRef(0);
+  const acquisitionTestRef = useRef(false);
+  const acquisitionTestMetricsRef = useRef(emptyAcquisitionTest());
   const reacquireEveryFrames = 12;
 
   const streamPayload = useMemo(() => {
@@ -193,6 +236,43 @@ export function OptiFrameLab() {
     const image = context.getImageData(0, 0, width, height);
 
     const captureStarted = performance.now();
+
+    if (acquisitionTestRef.current) {
+      const probe = inspectOptiFrameAcquisition(image);
+      const elapsed = performance.now() - captureStarted;
+      const previous = acquisitionTestMetricsRef.current;
+      const stageCounts = { ...previous.stageCounts, [probe.stage]: previous.stageCounts[probe.stage] + 1 };
+      const samples = previous.samples + 1;
+      const locks = previous.locks + (probe.stage === 'ready' ? 1 : 0);
+      const next: AcquisitionTestState = {
+        running: samples < ACQUISITION_TEST_SAMPLES,
+        samples,
+        locks,
+        totalAnchors: previous.totalAnchors + probe.anchors.length,
+        averageMs: ((previous.averageMs * previous.samples) + elapsed) / samples,
+        peakMs: Math.max(previous.peakMs, elapsed),
+        lastStage: probe.stage,
+        stageCounts,
+      };
+      acquisitionTestMetricsRef.current = next;
+      setAcquisitionTest(next);
+      setAcquisition(probe);
+      if (samples >= ACQUISITION_TEST_SAMPLES) {
+        acquisitionTestRef.current = false;
+        setStatus(
+          '1× acquisition test complete · ' +
+          Math.round((locks / samples) * 100) +
+          '% full-lock rate · ' +
+          Math.round((next.totalAnchors / samples) * 10) / 10 +
+          ' anchors/sample · ' +
+          next.averageMs.toFixed(0) +
+          ' ms mean',
+        );
+      } else {
+        setStatus('1× acquisition test ' + samples + '/' + ACQUISITION_TEST_SAMPLES + ' · ' + probe.stage.toUpperCase());
+      }
+      return;
+    }
 
     const cropTrackedRegion = (source: ImageData) => {
       const anchors = trackedAnchorsRef.current;
@@ -373,14 +453,27 @@ export function OptiFrameLab() {
 
     if (result) {
       framesSinceFullScanRef.current = usedFullScan ? 0 : framesSinceFullScanRef.current + 1;
+      acquisitionFailureRef.current = 0;
       const absoluteAnchors = result.diagnostics.anchors.map(anchor => ({
         ...anchor,
         x: anchor.x + cropOffset.x,
         y: anchor.y + cropOffset.y,
       })) as OptiFramePerspectiveDiagnostics['anchors'];
       trackedAnchorsRef.current = absoluteAnchors;
+      setAcquisition({
+        stage: 'ready',
+        anchors: absoluteAnchors,
+        confidence: result.diagnostics.confidence,
+        moduleScale: absoluteAnchors.reduce((sum, anchor) => sum + anchor.scale, 0) / absoluteAnchors.length,
+        angle: absoluteAnchors.reduce((sum, anchor) => sum + anchor.angle, 0) / absoluteAnchors.length,
+        geometryRatio: 0,
+        sampleWidth: image.width,
+        sampleHeight: image.height,
+        elapsedMs: result.diagnostics.decodeMs,
+      });
     } else {
       framesSinceFullScanRef.current += 1;
+      acquisitionFailureRef.current += 1;
     }
 
     if (dropped && !result) {
@@ -407,7 +500,13 @@ export function OptiFrameLab() {
       };
     });
 
-    if (!result) return;
+    if (!result) {
+      if (acquisitionFailureRef.current >= 2) {
+        setAcquisition(inspectOptiFrameAcquisition(image));
+        acquisitionFailureRef.current = 0;
+      }
+      return;
+    }
 
     const frame = result.frame;
     if (frame.sequence === 0 && receiver.complete) {
@@ -502,6 +601,37 @@ export function OptiFrameLab() {
     }
   }
 
+  function startAcquisitionTest() {
+    if (!cameraOn) {
+      setStatus('Start the camera before running the 1× acquisition test.');
+      return;
+    }
+    setLaneCount(1);
+    setStreamPlaying(false);
+    acquisitionTestRef.current = true;
+    const next = emptyAcquisitionTest();
+    acquisitionTestMetricsRef.current = next;
+    setAcquisitionTest({ ...next, running: true });
+    setAcquisition({
+      stage: 'searching',
+      anchors: [],
+      confidence: 0,
+      moduleScale: 0,
+      angle: 0,
+      geometryRatio: 0,
+      sampleWidth: 0,
+      sampleHeight: 0,
+      elapsedMs: 0,
+    });
+    setStatus('1× acquisition test armed · sender paused · hold one frame steady inside the camera view.');
+  }
+
+  function stopAcquisitionTest() {
+    acquisitionTestRef.current = false;
+    setAcquisitionTest(previous => ({ ...previous, running: false }));
+    setStatus('1× acquisition test stopped.');
+  }
+
   function resetReceiver() {
     assemblerRef.current.reset();
     seenSequenceRef.current.clear();
@@ -582,7 +712,7 @@ export function OptiFrameLab() {
           <div className="flex items-center justify-between gap-3">
             <div><div className="flex items-center gap-2 text-sm font-bold text-[var(--text)]">{cameraOn ? <CheckCircle2 size={16} className="text-emerald-300"/> : <ScanLine size={16} className="text-cyan-300"/>} Live camera receiver</div><p className="mt-1 text-xs text-[var(--text-muted)]">Perspective correction runs locally on the browser using the four finder anchors. Camera frames never leave the device.</p></div>
             <div className={`rounded-full border px-3 py-2 text-[10px] font-black tracking-[.12em] ${cameraStats.hits ? 'border-emerald-300/20 bg-emerald-300/10 text-emerald-300' : cameraOn ? 'border-amber-300/20 bg-amber-300/10 text-amber-200' : 'border-[var(--border)] text-[var(--text-muted)]'}`}>
-              {cameraStats.hits ? 'OPTICAL LOCK' : cameraOn ? 'SEARCHING' : 'OFFLINE'}
+              {acquisition.stage === 'ready' ? 'OPTICAL LOCK' : cameraOn ? 'SEARCHING' : 'OFFLINE'}
             </div>
             <button onClick={() => void (cameraOn ? stopCamera() : startCamera())} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950">{cameraOn ? <CameraOff size={14}/> : <Camera size={14}/>} {cameraOn ? 'Stop camera' : 'Start camera'}</button>
           </div>
@@ -610,6 +740,38 @@ export function OptiFrameLab() {
               <div><p className="text-[10px] text-[var(--text-muted)]">Angle</p><p className="text-sm font-black text-[var(--text)]">{acquisition.angle.toFixed(1)}°</p></div>
             </div>
             <p className="mt-3 text-[10px] leading-5 text-[var(--text-muted)]">Sample {acquisition.sampleWidth || '—'}×{acquisition.sampleHeight || '—'} · acquisition {acquisition.elapsedMs.toFixed(0)} ms · camera {cameraStats.cameraFrameRate ? cameraStats.cameraFrameRate.toFixed(1) + ' FPS' : 'FPS unavailable'} · capabilities: {cameraCapabilities.length ? cameraCapabilities.join(', ') : 'not exposed'}</p>
+
+          <div className="mt-4 rounded-2xl border border-violet-300/20 bg-violet-300/10 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[.14em] text-violet-200"><Activity size={14}/> 1× acquisition test</p>
+                <p className="mt-1 text-[10px] leading-5 text-[var(--text-muted)]">Runs 30 full-frame acquisition samples without payload decoding. This isolates finder detection, geometry and calibration from the transfer engine.</p>
+              </div>
+              <button
+                onClick={acquisitionTest.running ? stopAcquisitionTest : startAcquisitionTest}
+                disabled={!cameraOn}
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {acquisitionTest.running ? <Timer size={14}/> : <Crosshair size={14}/>}
+                {acquisitionTest.running ? 'Stop test' : 'Run 30-frame test'}
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div><p className="text-[10px] text-[var(--text-muted)]">Samples</p><p className="text-sm font-black text-[var(--text)]">{acquisitionTest.samples}/{ACQUISITION_TEST_SAMPLES}</p></div>
+              <div><p className="text-[10px] text-[var(--text-muted)]">Full locks</p><p className="text-sm font-black text-[var(--text)]">{acquisitionTest.samples ? Math.round(acquisitionTest.locks / acquisitionTest.samples * 100) + '%' : '—'}</p></div>
+              <div><p className="text-[10px] text-[var(--text-muted)]">Avg anchors</p><p className="text-sm font-black text-[var(--text)]">{acquisitionTest.samples ? (acquisitionTest.totalAnchors / acquisitionTest.samples).toFixed(1) : '—'}</p></div>
+              <div><p className="text-[10px] text-[var(--text-muted)]">Mean / peak</p><p className="text-sm font-black text-[var(--text)]">{acquisitionTest.samples ? acquisitionTest.averageMs.toFixed(0) + ' / ' + acquisitionTest.peakMs.toFixed(0) + ' ms' : '—'}</p></div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-bold text-[var(--text-muted)]">
+              {(['searching', 'anchors', 'geometry', 'calibration', 'ready'] as const).map(stage => (
+                <span key={stage} className="rounded-full border border-[var(--border)] px-2 py-1">{stage}: {acquisitionTest.stageCounts[stage]}</span>
+              ))}
+            </div>
+
+            <p className="mt-3 text-[10px] leading-5 text-[var(--text-muted)]">Last stage: {acquisitionTest.lastStage.toUpperCase()} · The test forces 1× mode and pauses the sender so every sample sees the same optical frame.</p>
+          </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Attempts</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.attempts}</p></div>
