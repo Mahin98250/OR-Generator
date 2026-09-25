@@ -200,27 +200,47 @@ async function multiImageRoundTrip() {
 }
 
 async function fountainRoundTrip() {
-  const original = makeBytes(9_600, 123);
+  const original = makeBytes(18_400, 123);
   const file = new File([original], 'diagnostic-fountain.bin', { type: 'application/octet-stream' });
   const plan = await createFountainTransfer(file);
-  const first = parseFountainFrame(await plan.getDroplet(0));
-  assert(first, 'Fountain fixture did not produce a valid droplet.');
-  const decoder = createFountainDecoder(first);
-  let duplicates = 0;
-  let complete = false;
-  for (let i = 0; i < plan.blocks * 20 && !complete; i += 1) {
-    const raw = await plan.getDroplet(i % 4);
+  assert(plan.blocks >= 10, 'Fountain fixture did not create enough source blocks.');
+
+  const rawFrames: Array<ReturnType<typeof parseFountainFrame>> = [];
+  const frameCount = plan.blocks * 3;
+  for (let i = 0; i < frameCount; i += 1) {
+    const raw = await plan.getDroplet(i % 4, i);
     const frame = parseFountainFrame(raw);
-    assert(frame, 'Fountain droplet failed to parse.');
-    const result = decoder.add(frame);
-    if (result.duplicate) duplicates += 1;
-    complete = result.complete;
+    assert(frame, 'Fountain droplet ' + i + ' failed to parse.');
+    rawFrames.push(frame);
   }
+
+  // Simulate an optical channel: the receiver starts late, drops ~25% of
+  // frames, receives out of order and sees duplicates.
+  const kept = rawFrames.filter((_, index) => index >= Math.floor(frameCount * 0.15) && index % 4 !== 0);
+  const reordered = [...kept].reverse();
+  const duplicate = kept.slice(0, Math.min(8, kept.length));
+  const delivery = [...reordered, ...duplicate];
+
+  const first = delivery[0];
+  assert(first, 'No fountain delivery fixture survived the simulated loss.');
+  const decoder = createFountainDecoder(first);
+  let duplicateObserved = false;
+  let complete = false;
+
+  for (const frame of delivery) {
+    const result = decoder.add(frame);
+    duplicateObserved ||= result.duplicate;
+    complete = result.complete;
+    if (complete) break;
+  }
+
+  assert(duplicateObserved, 'Fountain duplicate tolerance was not exercised.');
   const rebuilt = await decoder.reconstruct();
-  assert(rebuilt, 'Fountain decoder could not reconstruct the fixture.');
-  expectEqualBytes(rebuilt.bytes, original, 'Fountain round-trip');
+  assert(rebuilt, 'Fountain decoder could not reconstruct under simulated loss/out-of-order delivery.');
+  expectEqualBytes(rebuilt.bytes, original, 'Fountain lossy round-trip');
   assert(rebuilt.hash === plan.hash, 'Fountain SHA-256 mismatch.');
-  return plan.blocks + ' source blocks · randomized droplets · duplicate tolerance · exact SHA-256';
+
+  return plan.blocks + ' source blocks · ~25% simulated frame loss · late join · out-of-order delivery · duplicates · exact SHA-256';
 }
 
 async function scanFormatCompatibility() {
