@@ -1,16 +1,22 @@
 {
-  "name": "OR-Generator — QR Studio",
-  "short_name": "OR-Generator",
-  "description": "A fast, private, installable QR code generator and scanner.",
+  "name": "OptiCode Studio — QR · Barcode · Optical Transfer",
+  "short_name": "OptiCode",
+  "description": "An all-in-one, private QR, barcode, scanner and offline optical file-transfer workspace.",
   "id": "/OR-Generator/",
   "start_url": "/OR-Generator/",
   "scope": "/OR-Generator/",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "standalone"],
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
   "orientation": "portrait-primary",
-  "theme_color": "#070a14",
-  "background_color": "#070a14",
-  "categories": ["utilities", "productivity"],
+  "theme_color": "#101426",
+  "background_color": "#050712",
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "/OR-Generator/icon-192.svg",
@@ -27,16 +33,40 @@
   ],
   "shortcuts": [
     {
-      "name": "Scan QR",
+      "name": "Scan QR & Barcode",
       "short_name": "Scan",
       "url": "/OR-Generator/#/scanner",
-      "icons": [{ "src": "/OR-Generator/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+      "icons": [
+        {
+          "src": "/OR-Generator/icon-192.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml"
+        }
+      ]
     },
     {
       "name": "Create QR",
       "short_name": "Create",
       "url": "/OR-Generator/#/generator",
-      "icons": [{ "src": "/OR-Generator/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+      "icons": [
+        {
+          "src": "/OR-Generator/icon-192.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Optical Transfer",
+      "short_name": "Transfer",
+      "url": "/OR-Generator/#/transfer",
+      "icons": [
+        {
+          "src": "/OR-Generator/icon-192.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml"
+        }
+      ]
     }
   ]
 }
