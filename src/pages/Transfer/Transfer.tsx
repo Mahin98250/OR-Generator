@@ -56,7 +56,7 @@ export function Transfer() {
       try{
         const values:string[]=[];
         for(let lane=0;lane<grid;lane+=1){
-          if(fountain) values.push(await fountain.getDroplet(lane));
+          if(fountain) values.push(await fountain.getDroplet(lane, group));
           else{
             const index=current*grid+lane+1;
             if(compat && index<=compat.total) values.push(await compat.getFrame(index));
