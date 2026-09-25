@@ -32,7 +32,7 @@ export function OptiFrameLab() {
   const [cameraError, setCameraError] = useState('');
   const [cameraDecoded, setCameraDecoded] = useState('');
   const [receiver, setReceiver] = useState({ total: 0, received: 0, bytes: 0, missing: [] as number[], complete: false });
-  const [cameraStats, setCameraStats] = useState<CameraStats>({ attempts: 0, hits: 0, duplicates: 0, lastMs: 0, bytes: 0, fps: 0, startedAt: null });
+  const [cameraStats, setCameraStats] = useState<CameraStats>({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, startedAt: null });
   const [streamPlaying, setStreamPlaying] = useState(false);
   const [streamIndex, setStreamIndex] = useState(0);
 
@@ -165,7 +165,7 @@ export function OptiFrameLab() {
     }
 
     let workerResult: Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
-    let result: Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
+    let result: ReturnType<typeof decodeOptiFramePerspective> | Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
     try {
       workerResult = await workerJob;
       result = workerResult;
