@@ -1,0 +1,75 @@
+type DecodeResult = {
+  id:number;
+  values:string[];
+  regionsScanned:number;
+  processingMs:number;
+};
+
+type Pending = {
+  resolve:(result:DecodeResult)=>void;
+  reject:(error:Error)=>void;
+};
+
+export class QrDecodePool {
+  private readonly workers:Worker[]=[];
+  private readonly pending=new Map<number,Pending>();
+  private readonly busy=new Set<number>();
+  private nextId=1;
+
+  constructor(size=Math.min(2,Math.max(1,(navigator.hardwareConcurrency||2)-1))) {
+    const count=Math.max(1,Math.min(3,size));
+    for(let i=0;i<count;i+=1) {
+      const worker=new Worker(new URL('../workers/qrDecoder.worker.ts',import.meta.url),{type:'module'});
+      worker.onmessage=(event:MessageEvent<DecodeResult>) => {
+        const pending=this.pending.get(event.data.id);
+        if(!pending)return;
+        this.pending.delete(event.data.id);
+        const workerIndex=this.workers.indexOf(worker);
+        if(workerIndex>=0)this.busy.delete(workerIndex);
+        pending.resolve(event.data);
+      };
+      worker.onerror=() => {
+        const workerIndex=this.workers.indexOf(worker);
+        if(workerIndex>=0)this.busy.delete(workerIndex);
+        for(const [id,pending] of this.pending) {
+          // Only reject work that was assigned to this failed worker.
+          if(pending.reject.name === String(workerIndex)) {
+            this.pending.delete(id);
+            pending.reject(new Error('QR decoder worker failed.'));
+          }
+        }
+      };
+      this.workers.push(worker);
+    }
+  }
+
+  get capacity() {
+    return this.workers.length;
+  }
+
+  get available() {
+    return this.workers.findIndex((_,index)=>!this.busy.has(index));
+  }
+
+  decode(buffer:ArrayBuffer,width:number,height:number,maxDepth=2):Promise<DecodeResult>|null {
+    const workerIndex=this.available;
+    if(workerIndex<0)return null;
+    const worker=this.workers[workerIndex];
+    const id=this.nextId++;
+    this.busy.add(workerIndex);
+    return new Promise((resolve,reject)=>{
+      const wrappedReject=((error:Error)=>{
+        Object.defineProperty(wrappedReject,'name',{value:String(workerIndex)});
+        reject(error);
+      }) as Pending['reject'];
+      this.pending.set(id,{resolve,reject:wrappedReject});
+      worker.postMessage({id,width,height,buffer,maxDepth},[buffer]);
+    });
+  }
+
+  terminate() {
+    for(const worker of this.workers)worker.terminate();
+    this.pending.clear();
+    this.busy.clear();
+  }
+}
