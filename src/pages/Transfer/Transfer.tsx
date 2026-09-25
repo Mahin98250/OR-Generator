@@ -76,6 +76,7 @@ export function Transfer() {
     const current=group%totalGroups;
     void (async()=>{
       try{
+        const renderStart=performance.now();
         const values:string[]=[];
         for(let lane=0;lane<grid;lane+=1){
           if(fountain) values.push(await fountain.getDroplet(lane, group));
@@ -85,7 +86,7 @@ export function Transfer() {
           }
         }
         if(cancelled)return;
-        const renderMs=performance.now()-started;
+        const renderMs=performance.now()-renderStart;
         renderCountRef.current+=1;
         if(renderWindowRef.current.started===0)renderWindowRef.current.started=performance.now();
         renderWindowRef.current.count+=1;
@@ -101,13 +102,13 @@ export function Transfer() {
             renderWindowRef.current={started:now,count:0};
           }
         }
-        setTelemetry(prev=>({...prev,renderMs:prev.renderCount===0?renderMs:(prev.renderMs*0.75+renderMs*0.25),renderCount:renderCountRef.current}));
+        setTelemetry(prev=>({...prev,renderMs:prev.renderCount===0?renderMs:(prev.renderMs*0.75+renderMs*0.25),renderCount:renderCountRef.current,renderFps:prev.renderFps===0?1/(Math.max(.001,renderMs)/1000):prev.renderFps*.8+(1/Math.max(.001,renderMs/1000))*.2}));
       }catch(e){
         if(!cancelled)setError(e instanceof Error?e.message:'Unable to render the transfer stream.');
       }
     })();
     return()=>{cancelled=true;};
-  },[fountain,compat,group]);
+  },[fountain,compat,group,autoTune,intervalMs]);
 
   function stopPlayback(){ setPlaying(false); if(timerRef.current!==null){window.clearInterval(timerRef.current);timerRef.current=null;} }
   function stopReceive(){
@@ -226,7 +227,7 @@ export function Transfer() {
               if(!receivingRef.current)return;
             }
           }
-          if(receivingRef.current)window.setTimeout(()=>void loop(),55);
+          if(receivingRef.current)window.setTimeout(()=>void loop(),scanDelayRef.current);
         };
         void loop();
       }
