@@ -183,7 +183,6 @@ function quantize(v: number) {
 
 function decodeAxisAlignedImage(image: ImageData) {
   if (image.width !== OPTIFRAME_SIZE || image.height !== OPTIFRAME_SIZE) return null;
-  const moduleScale = anchors.reduce((sum, anchor) => sum + anchor.scale, 0) / anchors.length;
   const bits: number[] = [];
   for (let r = 0; r < OPTIFRAME_SIZE; r++) {
     for (let col = 0; col < OPTIFRAME_SIZE; col++) {
@@ -483,6 +482,7 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
   const calibration = estimateCalibration(image, anchors);
   if (!calibration) return null;
 
+  const moduleScale = anchors.reduce((sum, anchor) => sum + anchor.scale, 0) / anchors.length;
   const topWidth = Math.hypot(tr.x - tl.x, tr.y - tl.y);
   const bottomWidth = Math.hypot(br.x - bl.x, br.y - bl.y);
   const leftHeight = Math.hypot(bl.x - tl.x, bl.y - tl.y);
