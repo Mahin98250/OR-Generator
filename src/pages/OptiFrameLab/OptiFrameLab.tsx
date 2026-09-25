@@ -10,9 +10,14 @@ type CameraStats = {
   attempts: number;
   hits: number;
   duplicates: number;
+  dropped: number;
+  workerHits: number;
+  localHits: number;
   lastMs: number;
   bytes: number;
-  fps: number;
+  captureFps: number;
+  decodeFps: number;
+  goodputBps: number;
   startedAt: number | null;
 };
 
@@ -38,6 +43,7 @@ export function OptiFrameLab() {
   const senderTimerRef = useRef<number | null>(null);
   const assemblerRef = useRef(new OptiFrameAssembler());
   const decodePoolRef = useRef(new OptiFrameDecodePool());
+  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const seenSequenceRef = useRef(new Set<number>());
 
   const streamPayload = useMemo(() => {
@@ -138,30 +144,55 @@ export function OptiFrameLab() {
     const video = videoRef.current;
     if (!video || video.readyState < 2 || !streamRef.current) return;
 
-    const capture = document.createElement('canvas');
+    const capture = captureCanvasRef.current ?? document.createElement('canvas');
+    captureCanvasRef.current = capture;
     const maxDimension = 720;
     const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
-    capture.width = Math.max(1, Math.round(video.videoWidth * scale));
-    capture.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const width = Math.max(1, Math.round(video.videoWidth * scale));
+    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    if (capture.width !== width) capture.width = width;
+    if (capture.height !== height) capture.height = height;
     const context = capture.getContext('2d', { willReadFrequently: true });
     if (!context) return;
-    context.drawImage(video, 0, 0, capture.width, capture.height);
-    const image = context.getImageData(0, 0, capture.width, capture.height);
+    context.drawImage(video, 0, 0, width, height);
+    const image = context.getImageData(0, 0, width, height);
 
-    const started = performance.now();
+    const captureStarted = performance.now();
     const workerJob = decodePoolRef.current.decode(image.data.buffer.slice(0), image.width, image.height);
-    const workerResult = workerJob ? await workerJob : null;
-    const result = workerResult ?? decodeOptiFramePerspective(image);
-    const elapsed = performance.now() - started;
+    if (!workerJob) {
+      setCameraStats(prev => ({ ...prev, attempts: prev.attempts + 1, dropped: prev.dropped + 1 }));
+      return;
+    }
+
+    let workerResult: Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
+    let result: Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
+    try {
+      workerResult = await workerJob;
+      result = workerResult;
+    } catch {
+      try {
+        result = decodeOptiFramePerspective(image);
+      } catch {
+        result = null;
+      }
+    }
+
+    const elapsed = performance.now() - captureStarted;
+    const elapsedSinceStart = cameraStats.startedAt ? Math.max(0.001, (performance.now() - cameraStats.startedAt) / 1000) : 0;
 
     setCameraStats(prev => {
-      const attempts = prev.attempts + 1;
-      const elapsedSinceStart = prev.startedAt ? Math.max(0.001, (performance.now() - prev.startedAt) / 1000) : 0;
+      const nextHits = prev.hits + (result ? 1 : 0);
+      const elapsedFromStart = prev.startedAt ? Math.max(0.001, (performance.now() - prev.startedAt) / 1000) : 0;
       return {
         ...prev,
-        attempts,
+        attempts: prev.attempts + 1,
+        hits: nextHits,
+        workerHits: prev.workerHits + (workerResult ? 1 : 0),
+        localHits: prev.localHits + (!workerResult && result ? 1 : 0),
         lastMs: elapsed,
-        fps: elapsedSinceStart ? attempts / elapsedSinceStart : 0,
+        captureFps: elapsedFromStart ? (prev.attempts + 1) / elapsedFromStart : 0,
+        decodeFps: elapsedFromStart ? nextHits / elapsedFromStart : 0,
+        goodputBps: elapsedFromStart ? (result ? 0 : 0) : 0,
       };
     });
 
@@ -177,12 +208,15 @@ export function OptiFrameLab() {
     const assembly = assemblerRef.current.add(frame);
     seenSequenceRef.current.add(frame.sequence);
 
-    setCameraStats(prev => ({
-      ...prev,
-      hits: prev.hits + 1,
-      duplicates: prev.duplicates + (duplicate ? 1 : 0),
-      bytes: assembly.bytes,
-    }));
+    setCameraStats(prev => {
+      const elapsedFromStart = prev.startedAt ? Math.max(0.001, (performance.now() - prev.startedAt) / 1000) : 0;
+      return {
+        ...prev,
+        duplicates: prev.duplicates + (duplicate ? 1 : 0),
+        bytes: assembly.bytes,
+        goodputBps: elapsedFromStart ? assembly.bytes / elapsedFromStart : 0,
+      };
+    });
 
     setReceiver({
       total: assembly.total,
@@ -211,7 +245,7 @@ export function OptiFrameLab() {
     seenSequenceRef.current.clear();
     setReceiver({ total: 0, received: 0, bytes: 0, missing: [], complete: false });
     setCameraDecoded('');
-    setCameraStats({ attempts: 0, hits: 0, duplicates: 0, lastMs: 0, bytes: 0, fps: 0, startedAt: performance.now() });
+    setCameraStats({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, startedAt: performance.now() });
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -247,7 +281,7 @@ export function OptiFrameLab() {
     seenSequenceRef.current.clear();
     setReceiver({ total: 0, received: 0, bytes: 0, missing: [], complete: false });
     setCameraDecoded('');
-    setCameraStats(prev => ({ ...prev, hits: 0, duplicates: 0, bytes: 0 }));
+    setCameraStats(prev => ({ ...prev, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0 }));
   }
 
   return (
@@ -316,10 +350,11 @@ export function OptiFrameLab() {
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6">
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Attempts</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.attempts}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decoded</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.hits}</p></div>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Dropped</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.dropped}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Duplicates</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.duplicates}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decode ms</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.lastMs.toFixed(0)}</p></div>
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Payload</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.bytes.toLocaleString()} B</p></div>
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decode FPS</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.fps.toFixed(1)}</p></div>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Goodput</p><p className="mt-1 text-lg font-black text-[var(--text)]">{(cameraStats.goodputBps / 1024).toFixed(1)} KB/s</p></div>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decode FPS</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.decodeFps.toFixed(1)}</p></div>
           </div>
         </GlassCard>
 
