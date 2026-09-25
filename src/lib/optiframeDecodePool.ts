@@ -25,6 +25,7 @@ type WorkerResponse = {
 type PoolWorker = {
   worker: Worker;
   busy: boolean;
+  failed: boolean;
   index: number;
 };
 
@@ -46,7 +47,7 @@ export class OptiFrameDecodePool {
           new URL('../workers/optiframeDecoder.worker.ts', import.meta.url),
           { type: 'module' },
         );
-        const poolWorker: PoolWorker = { worker, busy: false, index };
+        const poolWorker: PoolWorker = { worker, busy: false, failed: false, index };
 
         worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
           const pending = this.pending.get(event.data.id);
@@ -75,12 +76,14 @@ export class OptiFrameDecodePool {
         };
 
         worker.onerror = () => {
+          poolWorker.failed = true;
+          poolWorker.busy = false;
+          worker.terminate();
           for (const [id, pending] of this.pending) {
             if (pending.workerIndex !== index) continue;
             this.pending.delete(id);
             pending.reject(new Error('OptiFrame decoder worker failed.'));
           }
-          poolWorker.busy = false;
         };
 
         this.workers.push(poolWorker);
@@ -91,15 +94,15 @@ export class OptiFrameDecodePool {
   }
 
   get capacity() {
-    return this.workers.length;
+    return this.workers.filter(worker => !worker.failed).length;
   }
 
   get busyCount() {
-    return this.workers.filter(worker => worker.busy).length;
+    return this.workers.filter(worker => !worker.failed && worker.busy).length;
   }
 
   get available() {
-    return this.workers.some(worker => !worker.busy);
+    return this.workers.some(worker => !worker.failed && !worker.busy);
   }
 
   decode(
@@ -107,7 +110,7 @@ export class OptiFrameDecodePool {
     width: number,
     height: number,
   ): Promise<OptiFrameWorkerResult | null> | null {
-    const slot = this.workers.find(worker => !worker.busy);
+    const slot = this.workers.find(worker => !worker.failed && !worker.busy);
     if (!slot) return null;
 
     const id = this.nextId++;
