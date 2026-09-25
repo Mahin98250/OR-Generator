@@ -86,6 +86,7 @@ export function QRScanner() {
   const zxingRef = useRef<BrowserMultiFormatReader | null>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
   const lastScanRef = useRef(0);
+  const recentMultiFrameRef = useRef<Map<string, number>>(new Map());
 
   const [result, setResult] = useState('');
   const [format, setFormat] = useState('QR CODE');
@@ -156,7 +157,13 @@ export function QRScanner() {
 
       const controls = await reader.decodeFromVideoElement(video, (decoded, decodeError) => {
         if (decoded?.getText()) {
-          handleDecoded(decoded.getText(), normalizeFormat(decoded.getBarcodeFormat()?.toString()));
+          const value = decoded.getText().trim();
+          const detectedFormat = normalizeFormat(decoded.getBarcodeFormat()?.toString());
+          if (isMultiImageQr(value)) {
+            void handleDecoded(value, detectedFormat);
+            return;
+          }
+          void handleDecoded(value, detectedFormat);
           zxingControlsRef.current?.stop();
           return;
         }
@@ -304,6 +311,16 @@ export function QRScanner() {
   async function handleDecoded(value: string, detectedFormat = 'qr_code') {
     if (!value) return;
     if (isMultiImageQr(value)) {
+      const now = performance.now();
+      const previous = recentMultiFrameRef.current.get(value);
+      if (previous && now - previous < 600) return;
+      recentMultiFrameRef.current.set(value, now);
+
+      if (recentMultiFrameRef.current.size > 300) {
+        for (const [key, timestamp] of recentMultiFrameRef.current) {
+          if (now - timestamp > 5000) recentMultiFrameRef.current.delete(key);
+        }
+      }
       const parsed = parseMultiImageQr(value);
       if (!parsed) { setError('This Multi-QR photo frame is invalid.'); return; }
 
