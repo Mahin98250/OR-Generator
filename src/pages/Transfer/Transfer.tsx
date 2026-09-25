@@ -62,13 +62,13 @@ export function Transfer() {
   const solvedRef=useRef(0);
   const decodedBytesRef=useRef(0);
   const duplicateCountRef=useRef(0);
-  const lastTelemetryRef=useRef(0);
   const scanDelayRef=useRef(55);
   const benchmarkStartedRef=useRef<number|null>(null);
   const benchmarkFramesRef=useRef(0);
   const benchmarkCodesRef=useRef(0);
   const benchmarkUniqueRef=useRef(new Set<string>());
   const benchmarkDecodeSamplesRef=useRef<number[]>([]);
+  const benchmarkTimerRef=useRef<number|null>(null);
 
   useEffect(()=>()=>{ stopReceive(); stopPlayback(); if(result?.url) URL.revokeObjectURL(result.url); },[result]);
   useEffect(()=>{
@@ -123,8 +123,13 @@ export function Transfer() {
 
   function stopPlayback(){ setPlaying(false); if(timerRef.current!==null){window.clearInterval(timerRef.current);timerRef.current=null;} }
   function stopReceive(){
-    receivingRef.current=false; detectorRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null;
-    qrPoolRef.current?.terminate(); qrPoolRef.current=null;
+    receivingRef.current=false;
+    detectorRef.current=null;
+    streamRef.current?.getTracks().forEach(t=>t.stop());
+    streamRef.current=null;
+    qrPoolRef.current?.terminate();
+    qrPoolRef.current=null;
+    if(benchmarkTimerRef.current!==null){window.clearTimeout(benchmarkTimerRef.current);benchmarkTimerRef.current=null;}
     setReceiving(false);
   }
   function resetDecoder(){ fountainDecoderRef.current=null; fountainMetaRef.current=null; recentRef.current.clear(); }
@@ -159,8 +164,22 @@ export function Transfer() {
 
   function startBenchmark(){
     if(!receiving)return;
-    benchmarkFramesRef.current=0; benchmarkCodesRef.current=0; benchmarkUniqueRef.current.clear(); benchmarkDecodeSamplesRef.current=[];
-    benchmarkStartedRef.current=createBenchmarkStart(); setBenchmark(null); setBenchmarking(true);
+    if(benchmarkTimerRef.current!==null)window.clearTimeout(benchmarkTimerRef.current);
+    benchmarkFramesRef.current=0;
+    benchmarkCodesRef.current=0;
+    benchmarkUniqueRef.current.clear();
+    benchmarkDecodeSamplesRef.current=[];
+    benchmarkStartedRef.current=createBenchmarkStart();
+    setBenchmark(null);
+    setBenchmarking(true);
+    benchmarkTimerRef.current=window.setTimeout(()=>{
+      const started=benchmarkStartedRef.current;
+      if(started===null)return;
+      setBenchmark(finishBenchmark(started,benchmarkFramesRef.current,benchmarkCodesRef.current,benchmarkUniqueRef.current.size,benchmarkDecodeSamplesRef.current,decodedBytesRef.current));
+      setBenchmarking(false);
+      benchmarkStartedRef.current=null;
+      benchmarkTimerRef.current=null;
+    },10050);
   }
 
   function acceptValue(value:string){
