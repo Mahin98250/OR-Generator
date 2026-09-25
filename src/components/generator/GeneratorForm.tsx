@@ -46,7 +46,7 @@ export function GeneratorForm() {
 
   async function chooseImage(file?: File) {
     if (!file) return;
-    setError(''); setEncoding(true);
+    setError(''); setEncoding(true); setMultiPlan(null); setMultiQr(''); setMultiIndex(1);
     try {
       if (multiMode) {
         const encoded = await encodeImageForMultiQr(file);
@@ -90,7 +90,7 @@ export function GeneratorForm() {
     </div>
 
     <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1">
-      <button type="button" onClick={() => setImageMode(false)} className={`rounded-xl px-4 py-3 text-sm font-bold ${!imageMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}><Link2 size={15} className="mr-2 inline" />Text / Link</button>
+      <button type="button" onClick={() => { setImageMode(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1); }} className={`rounded-xl px-4 py-3 text-sm font-bold ${!imageMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}><Link2 size={15} className="mr-2 inline" />Text / Link</button>
       <button type="button" onClick={() => { setMultiMode(false); inputRef.current?.click(); }} disabled={encoding} className={`rounded-xl px-3 py-3 text-xs font-bold ${imageMode && !multiMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}>{encoding ? <Loader2 size={15} className="mr-1 inline animate-spin" /> : <ImagePlus size={15} className="mr-1 inline" />}Photo → QR</button>
       <button type="button" onClick={() => { setMultiMode(true); inputRef.current?.click(); }} disabled={encoding} className={`rounded-xl px-3 py-3 text-xs font-bold ${multiMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}><Layers3 size={15} className="mr-1 inline" />Multi-QR</button>
     </div>
