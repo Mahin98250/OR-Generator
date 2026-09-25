@@ -353,9 +353,18 @@ function searchFinder(image: ImageData, corner: Corner) {
   const scan = (angles: readonly number[]) => {
     const candidates: Array<{ x: number; y: number; score: number; scale: number; angle: number }> = [];
     const retain = (candidate: { x: number; y: number; score: number; scale: number; angle: number }) => {
-      candidates.push(candidate);
-      candidates.sort((a, b) => b.score - a.score);
-      if (candidates.length > 6) candidates.pop();
+      // Keep only the six strongest candidates without sorting the whole list
+      // for every hit. Finder acquisition runs across thousands of positions,
+      // so this hot path should stay allocation- and sort-light.
+      if (candidates.length < 6) {
+        candidates.push(candidate);
+        return;
+      }
+      let weakestIndex = 0;
+      for (let i = 1; i < candidates.length; i += 1) {
+        if (candidates[i].score < candidates[weakestIndex].score) weakestIndex = i;
+      }
+      if (candidate.score > candidates[weakestIndex].score) candidates[weakestIndex] = candidate;
     };
 
     for (const angle of angles) {
