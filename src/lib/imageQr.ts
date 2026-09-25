@@ -78,6 +78,90 @@ type MultiImageSession = {
   createdAt: number;
 };
 
+export async function encodeImageForMultiQr(file: File) {
+  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
+  if (file.size > MAX_MULTI_IMAGE_SIZE) throw new Error('For Multi-QR Photo, choose an image smaller than 25 MB.');
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  const hash = await shortHash(bytes);
+  const mime = encodeURIComponent(file.type);
+  const name = encodeName(file.name);
+  const bytesPerChunk = (MULTI_CHUNK_CHARS / 4) * 3;
+  const total = Math.max(1, Math.ceil(file.size / bytesPerChunk));
+
+  if (total > MAX_MULTI_FRAMES) {
+    throw new Error('This image would require too many QR frames. Choose a smaller image.');
+  }
+
+  // Generate one payload at a time so large photos do not create thousands
+  // of QR payload strings in memory at once.
+  const getChunk = async (index: number) => {
+    if (!Number.isInteger(index) || index < 1 || index > total) {
+      throw new Error('Multi-QR frame index is out of range.');
+    }
+
+    const start = (index - 1) * bytesPerChunk;
+    const end = Math.min(file.size, start + bytesPerChunk);
+    const chunk = new Uint8Array(await file.slice(start, end).arrayBuffer());
+    const encoded = toBase64(chunk);
+
+    return `${MULTI_IMAGE_QR_PREFIX}${id}|${mime}|${name}|${hash}|${index}|${total}|${encoded}`;
+  };
+
+  return { id, hash, getChunk, total, size: file.size, mime: file.type, name: file.name };
+}
+
+export function isMultiImageQr(value: string) {
+  return value.startsWith(MULTI_IMAGE_QR_PREFIX);
+}
+
+export function parseMultiImageQr(value: string) {
+  if (!isMultiImageQr(value)) return null;
+
+  const parts = value.split('|');
+  if (parts.length !== 6 && parts.length !== 7) return null;
+
+  // v1: prefix+id,mime,hash,index,total,data
+  // v2: prefix+id,mime,name,hash,index,total,data
+  const sessionRaw = parts[0];
+  const mimeRaw = parts[1];
+  const isV2 = parts.length === 7;
+  const nameRaw = isV2 ? parts[2] : '';
+  const hash = isV2 ? parts[3] : parts[2];
+  const indexRaw = isV2 ? parts[4] : parts[3];
+  const totalRaw = isV2 ? parts[5] : parts[4];
+  const data = isV2 ? parts[6] : parts[5];
+  const id = sessionRaw.slice(MULTI_IMAGE_QR_PREFIX.length);
+
+  const index = Number(indexRaw);
+  const total = Number(totalRaw);
+
+  if (
+    !id ||
+    !mimeRaw ||
+    !hash ||
+    !/^[a-f0-9]{64}$/i.test(hash) ||
+    !Number.isInteger(index) ||
+    !Number.isInteger(total) ||
+    index < 1 ||
+    total < 1 ||
+    index > total ||
+    total > MAX_MULTI_FRAMES ||
+    data.length > MULTI_CHUNK_CHARS ||
+    (data.length === 0 && !(total === 1 && index === 1))
+  ) return null;
+
+  try {
+    const mime = decodeURIComponent(mimeRaw);
+    const name = nameRaw ? decodeName(nameRaw) : 'reconstructed-original-image';
+    if (!mime || !name) return null;
+    return { id, mime, name, hash, index, total, data };
+  } catch {
+    return null;
+  }
+}
+
 export async function addMultiImageChunk(value: string) {
   const parsed = parseMultiImageQr(value);
   if (!parsed) return null;
