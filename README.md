@@ -1,6 +1,6 @@
-# OR-Generator
+# OptiCode Studio
 
-OR-Generator is a premium, offline-first QR Code Generator & Scanner web app built with React, Vite, TypeScript, and Framer Motion.
+OptiCode Studio is a premium, offline-first QR Code Generator & Scanner web app built with React, Vite, TypeScript, and Framer Motion.
 
 ## Features
 
