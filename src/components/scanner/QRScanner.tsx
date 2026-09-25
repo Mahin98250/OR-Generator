@@ -22,7 +22,7 @@ import {
 import { GlassButton } from '../ui/GlassButton';
 import { saveHistoryItem } from '../../lib/storage';
 import { analyzeScan, type ScanAnalysis } from '../../lib/scan';
-import { decodeImageQr, isImageQr, isMultiImageQr, addMultiImageChunk, reconstructMultiImage, parseMultiImageQr } from '../../lib/imageQr';
+import { clearMultiImage, decodeImageQr, getMultiImageMissingFrames, isImageQr, isMultiImageQr, addMultiImageChunk, reconstructMultiImage, parseMultiImageQr } from '../../lib/imageQr';
 
 type ScanMode = 'auto' | 'qr' | 'barcode';
 
@@ -102,10 +102,13 @@ export function QRScanner() {
   const [analysis, setAnalysis] = useState<ScanAnalysis | null>(null);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
   const [imageResult, setImageResult] = useState('');
-  const [multiImageResult, setMultiImageResult] = useState('');
-  const [multiProgress, setMultiProgress] = useState<{ id:string; received:number; total:number } | null>(null);
+  const [multiImageResult, setMultiImageResult] = useState<{ url:string; name:string; size:number } | null>(null);
+  const [multiProgress, setMultiProgress] = useState<{ id:string; received:number; total:number; missing:number[] } | null>(null);
 
   useEffect(() => () => stopCamera(), []);
+  useEffect(() => () => {
+    if (multiImageResult?.url) URL.revokeObjectURL(multiImageResult.url);
+  }, [multiImageResult]);
 
   function stopCamera() {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
@@ -173,7 +176,8 @@ export function QRScanner() {
     setResult('');
     setAnalysis(null);
     setImageResult('');
-    setMultiImageResult('');
+    if (multiImageResult?.url) URL.revokeObjectURL(multiImageResult.url);
+    setMultiImageResult(null);
     setMultiProgress(null);
     stopCamera();
 
@@ -249,7 +253,6 @@ export function QRScanner() {
         const detected = await detectorRef.current.detect(video);
         if (detected.length) {
           await handleBatchDecoded(detected);
-          if (detected.some((hit) => hit.rawValue && isMultiImageQr(hit.rawValue.trim()))) return;
         }
       }
     } catch {
@@ -302,21 +305,33 @@ export function QRScanner() {
     if (!value) return;
     if (isMultiImageQr(value)) {
       const parsed = parseMultiImageQr(value);
-      const progress = addMultiImageChunk(value);
-      if (!parsed || !progress) { setError('This Multi-QR photo frame is invalid.'); return; }
-      setMultiProgress({ id: parsed.id, received: progress.received, total: progress.total });
-      setResult(''); setAnalysis(null); setImageResult('');
-      if (progress.complete) {
-        try {
-          const url = await reconstructMultiImage(parsed.id);
-          if (url) {
-            setMultiImageResult(url);
+      if (!parsed) { setError('This Multi-QR photo frame is invalid.'); return; }
+
+      try {
+        const progress = addMultiImageChunk(value);
+        if (!progress) { setError('This Multi-QR photo frame is invalid.'); return; }
+
+        setMultiProgress({
+          id: parsed.id,
+          received: progress.received,
+          total: progress.total,
+          missing: getMultiImageMissingFrames(parsed.id),
+        });
+        setResult('');
+        setAnalysis(null);
+        setImageResult('');
+
+        if (progress.complete) {
+          const rebuilt = await reconstructMultiImage(parsed.id);
+          if (rebuilt) {
+            if (multiImageResult?.url) URL.revokeObjectURL(multiImageResult.url);
+            setMultiImageResult(rebuilt);
             setMultiProgress(null);
             stopCamera();
           }
-        } catch (e) {
-          setError(e instanceof Error ? e.message : 'Unable to reconstruct the original image.');
         }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Unable to store this Multi-QR frame.');
       }
       return;
     }
@@ -605,23 +620,37 @@ export function QRScanner() {
       {multiProgress && (
         <div className="overflow-hidden rounded-[28px] border border-cyan-300/20 bg-cyan-300/[.06] p-5">
           <div className="flex items-center justify-between gap-3">
-            <div><p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-300">Multi-QR Photo</p><p className="mt-1 text-sm text-[var(--text-muted)]">Frame {multiProgress.received} of {multiProgress.total} received. Scan the remaining frames in any order.</p></div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-300">Multi-QR Photo</p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">{multiProgress.received} of {multiProgress.total} unique frames received. Frames can arrive in any order.</p>
+            </div>
             <span className="text-sm font-black text-[var(--text)]">{Math.round(multiProgress.received / multiProgress.total * 100)}%</span>
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{ width: `${Math.min(100, multiProgress.received / multiProgress.total * 100)}%` }} /></div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0 text-xs leading-5 text-[var(--text-muted)]">
+              {multiProgress.missing.length
+                ? `Missing frames: ${multiProgress.missing.slice(0, 20).join(', ')}${multiProgress.missing.length > 20 ? ` +${multiProgress.missing.length - 20} more` : ''}`
+                : 'All frames received. Verifying the original image…'}
+            </p>
+            <GlassButton onClick={() => { clearMultiImage(multiProgress.id); setMultiProgress(null); setError(''); }}>
+              <RefreshCw size={14}/> Reset session
+            </GlassButton>
+          </div>
         </div>
       )}
 
       {multiImageResult && (
         <div className="overflow-hidden rounded-[28px] border border-emerald-300/20 bg-emerald-400/[.06] p-5 text-center">
           <p className="text-xs font-bold uppercase tracking-[.16em] text-emerald-300">Original photo reconstructed</p>
-          <img src={multiImageResult} alt="Original image reconstructed from Multi-QR frames" className="mx-auto mt-4 max-h-[640px] max-w-full rounded-2xl object-contain" />
-          <p className="mt-3 text-xs text-[var(--text-muted)]">Original file bytes were reconstructed locally. No resizing or re-encoding was performed.</p>
-          <a href={multiImageResult} download="reconstructed-original-image" className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950"><Save size={14}/> Save original image</a>
-          <GlassButton onClick={() => { URL.revokeObjectURL(multiImageResult); setMultiImageResult(''); }} className="ml-2"><RefreshCw size={14}/> Clear</GlassButton>
+          <img src={multiImageResult.url} alt={`Original image reconstructed from Multi-QR frames: ${multiImageResult.name}`} className="mx-auto mt-4 max-h-[640px] max-w-full rounded-2xl object-contain" />
+          <p className="mt-3 break-words text-sm font-bold text-[var(--text)]">{multiImageResult.name}</p>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">{(multiImageResult.size / 1024 / 1024).toFixed(2)} MB · original bytes preserved exactly</p>
+          <p className="mt-3 text-xs text-[var(--text-muted)]">No resizing or re-encoding was performed.</p>
+          <a href={multiImageResult.url} download={multiImageResult.name} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950"><Save size={14}/> Save original image</a>
+          <GlassButton onClick={() => { URL.revokeObjectURL(multiImageResult.url); setMultiImageResult(null); }} className="ml-2"><RefreshCw size={14}/> Clear</GlassButton>
         </div>
       )}
-
       {result && (
         <div className="overflow-hidden rounded-[28px] border border-emerald-300/20 bg-emerald-400/[.06] p-5">
           <div className="flex items-center justify-between gap-3">
