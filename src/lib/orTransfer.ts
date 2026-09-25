@@ -1,7 +1,10 @@
 import { clearSession, countChunks, getChunkIndexes, getChunks, getSession, putChunk, putSession } from './sessionStore';
 
 export const OR_TRANSFER_PREFIX = 'ORX1:';
-export const OR_TRANSFER_CHUNK_CHARS = 1200;
+export const OR_TRANSFER_CHUNK_CHARS = 2500;
+// High-speed optical transfer: each displayed frame can carry multiple independent QR symbols.
+// 2500 characters is below QR version 40-L's 2953-byte ceiling while leaving room for protocol metadata.
+export const OR_TRANSFER_GRID_SIZE = 4;
 export const OR_TRANSFER_MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TRANSFER_FRAMES = 150000;
 
@@ -71,9 +74,9 @@ export async function createTransfer(file: File) {
   const hash = await sha256(bytes);
   const session = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
 
-  // 900 raw bytes become exactly 1200 base64 characters. Generating a
-  // frame on demand avoids holding every QR payload in memory at once.
-  const bytesPerFrame = (OR_TRANSFER_CHUNK_CHARS / 4) * 3;
+  // 1875 raw bytes become 2500 base64 characters. Generating a frame on demand
+  // avoids holding every QR payload in memory at once.
+  const bytesPerFrame = Math.floor((OR_TRANSFER_CHUNK_CHARS / 4) * 3);
   const total = Math.max(1, Math.ceil(file.size / bytesPerFrame));
 
   if (total > MAX_TRANSFER_FRAMES) {
