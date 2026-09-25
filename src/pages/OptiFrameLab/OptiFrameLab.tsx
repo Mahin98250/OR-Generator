@@ -157,7 +157,10 @@ export function OptiFrameLab() {
 
     const capture = captureCanvasRef.current ?? document.createElement('canvas');
     captureCanvasRef.current = capture;
-    const maxDimension = 720;
+    // Preserve more camera detail for small optical cells. The display surface
+    // is now rendered at 3× protocol resolution, so downscaling to 720 px would
+    // throw away exactly the pixels we need for reliable finder/anchor detection.
+    const maxDimension = 1440;
     const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
     const width = Math.max(1, Math.round(video.videoWidth * scale));
     const height = Math.max(1, Math.round(video.videoHeight * scale));
