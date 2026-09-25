@@ -317,7 +317,7 @@ function finderQuickScore(image: ImageData, cx: number, cy: number, moduleScale:
     max = Math.max(max, value);
     samples.push({
       value,
-      expected: finderBit(r, col),
+      expected: finderBit(r, col) ? 1 : 0,
       weight: finderBit(r, col) ? 1.1 : 1.5,
     });
   }
