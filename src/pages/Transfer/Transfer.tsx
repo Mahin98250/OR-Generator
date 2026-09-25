@@ -1,204 +1,214 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, FileUp, LockKeyhole, Radio, ScanLine, ShieldCheck, WifiOff } from 'lucide-react';
+import { CheckCircle2, Download, FileUp, Gauge, LockKeyhole, Radio, ScanLine, ShieldCheck, WifiOff } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import QRCode from 'qrcode';
 import jsQR from 'jsqr';
-import { Link } from 'react-router-dom';
-import { OR_TRANSFER_GRID_SIZE, addTransferFrame, clearTransfer, createTransfer, getTransferMissingFrames, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
-import { countChunks, getSessions } from '../../lib/sessionStore';
+import { OR_TRANSFER_GRID_SIZE, addTransferFrame, createTransfer, isTransferFrame, parseTransferFrame, reconstructTransfer } from '../../lib/orTransfer';
+import { createFountainDecoder, createFountainTransfer, FOUNTAIN_BLOCK_BYTES, FOUNTAIN_GRID_SIZE, isFountainFrame, parseFountainFrame, type FountainDecoder, type FountainDroplet, type FountainPlan } from '../../lib/fountain';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
 type DetectorCtor = new (options?:{formats?:string[]}) => Detector;
 
+type Result = { url:string; name:string; size:number };
+type Progress = { mode:'fountain'|'compatibility'; session:string; name:string; received:number; total:number; duplicates:number };
+
 export function Transfer() {
   const [tab,setTab]=useState<'send'|'receive'>('send');
+  const [mode,setMode]=useState<'fountain'|'compatibility'>('fountain');
   const [file,setFile]=useState<File|null>(null);
-  const [plan,setPlan]=useState<Awaited<ReturnType<typeof createTransfer>>|null>(null);
-  const [index,setIndex]=useState(0);
+  const [fountain,setFountain]=useState<FountainPlan|null>(null);
+  const [compat,setCompat]=useState<Awaited<ReturnType<typeof createTransfer>>|null>(null);
+  const [group,setGroup]=useState(0);
   const [qr,setQr]=useState('');
+  const [playing,setPlaying]=useState(false);
+  const [intervalMs,setIntervalMs]=useState(100);
   const [error,setError]=useState('');
   const [receiving,setReceiving]=useState(false);
-  const [playing,setPlaying]=useState(false);
-  const [intervalMs,setIntervalMs]=useState(250);
-  const [progress,setProgress]=useState<{session:string;received:number;total:number;name:string;missingCount:number;missing:number[]|null;duplicates:number}|null>(null);
-  const [result,setResult]=useState<{url:string;name:string;size:number}|null>(null);
-  const [savedSessions,setSavedSessions]=useState<Array<{id:string;name:string;received:number;total:number;createdAt:number}>>([]);
+  const [progress,setProgress]=useState<Progress|null>(null);
+  const [result,setResult]=useState<Result|null>(null);
+  const [compatMissing,setCompatMissing]=useState<number|null>(null);
   const inputRef=useRef<HTMLInputElement>(null);
   const videoRef=useRef<HTMLVideoElement>(null);
   const streamRef=useRef<MediaStream|null>(null);
-  const receivingRef=useRef(false);
   const detectorRef=useRef<Detector|null>(null);
+  const receivingRef=useRef(false);
   const fallbackCanvasRef=useRef<HTMLCanvasElement|null>(null);
-  const playTimerRef=useRef<number|null>(null);
-  const playerRef=useRef<HTMLDivElement>(null);
-  const [fullscreen,setFullscreen]=useState(false);
-  const recentFrameRef=useRef<Map<string,number>>(new Map());
+  const timerRef=useRef<number|null>(null);
+  const fountainDecoderRef=useRef<FountainDecoder|null>(null);
+  const fountainMetaRef=useRef<FountainDroplet|null>(null);
+  const recentRef=useRef<Map<string,number>>(new Map());
 
-  async function loadSavedSessions() {
-    try {
-      const sessions = await getSessions('transfer');
-      const next = await Promise.all(sessions.map(async session => ({
-        id: session.id,
-        name: session.name,
-        received: await countChunks(session.key),
-        total: session.total,
-        createdAt: session.createdAt,
+  useEffect(()=>()=>{ stopReceive(); stopPlayback(); if(result?.url) URL.revokeObjectURL(result.url); },[result]);
+  useEffect(()=>{
+    if(!playing) return;
+    timerRef.current=window.setInterval(()=>setGroup(v=>v+1),intervalMs);
+    return()=>{ if(timerRef.current!==null) window.clearInterval(timerRef.current); timerRef.current=null; };
+  },[playing,intervalMs]);
+
+  useEffect(()=>{
+    let cancelled=false;
+    const plan=fountain ?? compat;
+    if(!plan){ setQr(''); return; }
+    const grid=fountain ? FOUNTAIN_GRID_SIZE : OR_TRANSFER_GRID_SIZE;
+    const totalGroups=fountain ? Math.max(1,Math.ceil(fountain.recommended/grid)) : Math.max(1,Math.ceil(compat!.total/grid));
+    const current=group%totalGroups;
+    const jobs=Array.from({length:grid},async(_,lane)=>{
+      if(fountain) return fountain.getDroplet(lane);
+      const index=current*grid+lane+1;
+      if(index>compat!.total) return null;
+      return compat.getFrame(index);
+    });
+    void Promise.all(jobs).then(async frames=>{
+      if(cancelled) return;
+      const urls=await Promise.all(frames.filter(Boolean).map(raw=>QRCode.toDataURL(raw!,{width:fountain?400:430,margin:2,errorCorrectionLevel:'L'})));
+      const size=900, cell=fountain?430:430, gap=15;
+      const canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
+      const ctx=canvas.getContext('2d'); if(!ctx) throw new Error('Canvas unavailable.');
+      ctx.fillStyle='#fff'; ctx.fillRect(0,0,size,size);
+      await Promise.all(urls.map((url,i)=>new Promise<void>((resolve,reject)=>{
+        const image=new Image(); image.onload=()=>{ const x=(i%2)*445+gap, y=Math.floor(i/2)*445+gap; ctx.drawImage(image,x,y,cell,cell); resolve(); }; image.onerror=()=>reject(new Error('QR render failed.')); image.src=url;
       })));
-      setSavedSessions(next.filter(session => session.received > 0).sort((a,b)=>b.createdAt-a.createdAt).slice(0,3));
-    } catch {
-      setSavedSessions([]);
-    }
+      if(!cancelled) setQr(canvas.toDataURL('image/png'));
+    }).catch(e=>{ if(!cancelled) setError(e instanceof Error?e.message:'Unable to render the transfer stream.'); });
+    return()=>{cancelled=true;};
+  },[fountain,compat,group]);
+
+  function stopPlayback(){ setPlaying(false); if(timerRef.current!==null){window.clearInterval(timerRef.current);timerRef.current=null;} }
+  function stopReceive(){
+    receivingRef.current=false; detectorRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false);
+  }
+  function resetDecoder(){ fountainDecoderRef.current=null; fountainMetaRef.current=null; recentRef.current.clear(); }
+
+  async function choose(value?:File){
+    if(!value)return;
+    setError(''); setResult(null); stopPlayback(); setGroup(0); resetDecoder();
+    try{
+      if(mode==='fountain'){
+        const plan=await createFountainTransfer(value); setFountain(plan); setCompat(null);
+      }else{
+        const plan=await createTransfer(value); setCompat(plan); setFountain(null);
+      }
+      setFile(value);
+    }catch(e){setFile(null);setFountain(null);setCompat(null);setQr('');setError(e instanceof Error?e.message:'Unable to prepare this file.');}
   }
 
-  useEffect(()=>{
-    if(!plan){ setQr(''); return; }
-    let cancelled=false;
-    const first=index*OR_TRANSFER_GRID_SIZE+1;
-    const indexes=Array.from({length:OR_TRANSFER_GRID_SIZE},(_,slot)=>first+slot).filter(frameIndex=>frameIndex<=plan.total);
-    void Promise.all(indexes.map(frameIndex=>plan.getFrame(frameIndex).then(frame=>QRCode.toDataURL(frame,{width:430,margin:2,errorCorrectionLevel:'L'}))))
-      .then(urls=>new Promise<string>((resolve,reject)=>{
-        const canvas=document.createElement('canvas'); canvas.width=900; canvas.height=900;
-        const ctx=canvas.getContext('2d'); if(!ctx){reject(new Error('Canvas is unavailable.'));return;}
-        ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,900,900);
-        const positions=[[15,15],[455,15],[15,455],[455,455]] as const;
-        Promise.all(urls.map((url,slot)=>new Promise<void>((ok,bad)=>{
-          const image=new Image(); image.onload=()=>{ctx.drawImage(image,positions[slot][0],positions[slot][1],430,430);ok();}; image.onerror=()=>bad(new Error('Unable to compose transfer QR.')); image.src=url;
-        }))).then(()=>resolve(canvas.toDataURL('image/png'))).catch(reject);
-      }))
-      .then(value=>{if(!cancelled)setQr(value);})
-      .catch(()=>{if(!cancelled)setError('Unable to render transfer QR.');});
-    return()=>{cancelled=true;};
-  },[plan,index]);
-  useEffect(()=>{ void loadSavedSessions(); },[]);
-  useEffect(()=>()=>{ stopReceive(); stopPlayback(); },[]);
-  useEffect(()=>()=>{ if(result?.url) URL.revokeObjectURL(result.url); },[result]);
-  useEffect(()=>{ const onFullscreen=()=>setFullscreen(document.fullscreenElement===playerRef.current); document.addEventListener('fullscreenchange',onFullscreen); return()=>document.removeEventListener('fullscreenchange',onFullscreen); },[]);
-  useEffect(()=>{
-    if(!playing || !plan || plan.total < 2) return;
-    const groups=Math.ceil(plan.total/OR_TRANSFER_GRID_SIZE);
-    playTimerRef.current = window.setInterval(()=>setIndex(i=>(i+1)%groups), intervalMs);
-    return ()=>{ if(playTimerRef.current!==null) window.clearInterval(playTimerRef.current); playTimerRef.current=null; };
-  },[playing,plan,intervalMs]);
-
-  function shouldProcessFrame(value:string) {
-    const now=performance.now();
-    const previous=recentFrameRef.current.get(value);
-    if(previous!==undefined && now-previous<600) return false;
-    recentFrameRef.current.set(value,now);
-
-    if(recentFrameRef.current.size>300){
-      for(const [key,timestamp] of recentFrameRef.current){
-        if(now-timestamp>5000) recentFrameRef.current.delete(key);
-      }
+  function acceptValue(value:string){
+    const now=performance.now(), previous=recentRef.current.get(value);
+    if(previous!==undefined && now-previous<250)return false;
+    recentRef.current.set(value,now);
+    if(recentRef.current.size>800){
+      for(const [key,t] of recentRef.current) if(now-t>5000) recentRef.current.delete(key);
     }
     return true;
   }
 
-  async function processTransferValue(value:string) {
-    if(!value || !isTransferFrame(value) || !shouldProcessFrame(value)) return;
-    const frame=parseTransferFrame(value); if(!frame) return;
-    const added=await addTransferFrame(frame);
-    setProgress(prev => ({session:added.session,received:added.received,total:added.total,name:added.name,missingCount:added.missingCount,missing:null,duplicates:(prev?.session===added.session ? prev.duplicates : 0) + (added.duplicate ? 1 : 0)}));
-    void loadSavedSessions();
-    if(added.complete) {
-      const rebuilt=await reconstructTransfer(added.session);
-      if(rebuilt){ setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size}); setProgress(null); stopReceive(); }
+  async function processValue(value:string){
+    if(!acceptValue(value))return;
+    if(isFountainFrame(value)){
+      const frame=parseFountainFrame(value); if(!frame)return;
+      if(!fountainDecoderRef.current){
+        fountainMetaRef.current=frame;
+        fountainDecoderRef.current=createFountainDecoder(frame);
+      }
+      const d=fountainDecoderRef.current.add(frame);
+      setProgress({mode:'fountain',session:frame.session,name:frame.name,received:fountainDecoderRef.current.seen(),total:frame.blocks,duplicates:0});
+      if(d.complete){
+        const rebuilt=await fountainDecoderRef.current.reconstruct();
+        if(rebuilt){
+          const url=URL.createObjectURL(new Blob([rebuilt.bytes],{type:frame.mime}));
+          setResult({url,name:frame.name,size:frame.size}); setProgress(null); stopReceive();
+        }
+      }
+      return;
+    }
+    if(isTransferFrame(value)){
+      const frame=parseTransferFrame(value); if(!frame)return;
+      const added=await addTransferFrame(frame);
+      setProgress(prev=>({mode:'compatibility',session:frame.session,name:frame.name,received:added.received,total:added.total,duplicates:(prev?.session===frame.session?prev.duplicates:0)+(added.duplicate?1:0)}));
+      if(added.complete){
+        const rebuilt=await reconstructTransfer(frame.session);
+        if(rebuilt){setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});setProgress(null);stopReceive();}
+      }
     }
   }
 
-  async function scanLoop() {
+  async function scanLoop(){
     if(!receivingRef.current||!videoRef.current||!detectorRef.current)return;
-    try {
+    try{
       const found=await detectorRef.current.detect(videoRef.current);
-      for(const item of found) {
-        const value=item.rawValue||''; try { await processTransferValue(value); } catch(e) { setError(e instanceof Error?e.message:'Transfer verification failed.'); }
-      }
-    } catch {}
-    if(receivingRef.current) window.setTimeout(()=>void scanLoop(),90);
+      await Promise.all(found.map(item=>item.rawValue?processValue(item.rawValue):Promise.resolve()));
+    }catch{}
+    if(receivingRef.current)window.setTimeout(()=>void scanLoop(),55);
   }
 
-  async function startReceive() {
-    setError(''); setResult(null); setProgress(null);
-    try {
+  async function startReceive(){
+    setError('');setResult(null);setProgress(null);resetDecoder();
+    try{
       const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
-      streamRef.current=stream; receivingRef.current=true; setReceiving(true);
-      if(videoRef.current){videoRef.current.srcObject=stream; await videoRef.current.play();}
-      if('BarcodeDetector' in window) {
+      streamRef.current=stream;receivingRef.current=true;setReceiving(true);
+      if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
+      if('BarcodeDetector' in window){
         const Ctor=(window as unknown as {BarcodeDetector:DetectorCtor}).BarcodeDetector;
-        detectorRef.current=new Ctor({formats:['qr_code']});
-        void scanLoop();
-      } else {
-        const canvas=document.createElement('canvas');
-        fallbackCanvasRef.current=canvas;
+        detectorRef.current=new Ctor({formats:['qr_code']}); void scanLoop();
+      }else{
+        const canvas=document.createElement('canvas'); fallbackCanvasRef.current=canvas;
         const ctx=canvas.getContext('2d',{willReadFrequently:true});
         const loop=async()=>{
           if(!receivingRef.current||!videoRef.current||!ctx)return;
-          const video=videoRef.current, w=video.videoWidth, h=video.videoHeight;
+          const video=videoRef.current,w=video.videoWidth,h=video.videoHeight;
           if(w&&h){
-            const halfW=Math.floor(w/2),halfH=Math.floor(h/2); canvas.width=halfW; canvas.height=halfH;
-            const regions=[[0,0],[halfW,0],[0,halfH],[halfW,halfH]] as const;
-            for(const [x,y] of regions){
-              ctx.drawImage(video,x,y,halfW,halfH,0,0,halfW,halfH);
-              const image=ctx.getImageData(0,0,halfW,halfH);
-              const decoded=jsQR(image.data,halfW,halfH,{inversionAttempts:'dontInvert'});
-              if(decoded?.data){ try { await processTransferValue(decoded.data); } catch(e) { setError(e instanceof Error?e.message:'Transfer verification failed.'); } }
+            const hw=Math.floor(w/2),hh=Math.floor(h/2);canvas.width=hw;canvas.height=hh;
+            for(const [x,y] of [[0,0],[hw,0],[0,hh],[hw,hh]] as const){
+              ctx.drawImage(video,x,y,hw,hh,0,0,hw,hh);
+              const image=ctx.getImageData(0,0,hw,hh);
+              const decoded=jsQR(image.data,hw,hh,{inversionAttempts:'dontInvert'});
+              if(decoded?.data)try{await processValue(decoded.data);}catch(e){setError(e instanceof Error?e.message:'Transfer decode failed.');}
               if(!receivingRef.current)return;
             }
           }
-          if(receivingRef.current) window.setTimeout(()=>void loop(),90);
+          if(receivingRef.current)window.setTimeout(()=>void loop(),55);
         };
         void loop();
       }
-    } catch(e) { setError(e instanceof Error?e.message:'Camera permission was denied.'); setReceiving(false); receivingRef.current=false; }
+    }catch(e){setError(e instanceof Error?e.message:'Camera permission was denied.');}
   }
-  function stopReceive() { receivingRef.current=false; detectorRef.current=null; fallbackCanvasRef.current=null; streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setReceiving(false); }
-  function stopPlayback() { setPlaying(false); if(playTimerRef.current!==null){window.clearInterval(playTimerRef.current);playTimerRef.current=null;} }
-
-  async function enterFullscreen() { try { await playerRef.current?.requestFullscreen?.(); setFullscreen(true); } catch { setError('Fullscreen is not available on this browser.'); } }
-  async function exitFullscreen() { try { if(document.fullscreenElement) await document.exitFullscreen(); } catch {} setFullscreen(false); }
-  async function choose(value?:File) { if(!value)return; setError(''); stopPlayback(); try {const t=await createTransfer(value);setFile(value);setPlan(t);setIndex(0);} catch(e){setPlan(null);setFile(null);setQr('');setError(e instanceof Error?e.message:'Unable to prepare this file.');} }
 
   return <section className="mx-auto max-w-6xl py-8 sm:py-12">
-    <Link to="/" className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)]">Back home</Link>
+    <Link to="/" className="text-xs font-semibold text-[var(--text-muted)]">Back home</Link>
     <div className="mt-5 overflow-hidden rounded-[32px] border border-cyan-300/15 bg-[var(--bg-elevated)] p-6 shadow-glass backdrop-blur-2xl sm:p-9">
-      <div className="flex flex-wrap gap-2"><span className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[.18em] text-cyan-200"><Radio size={14}/> OR Transfer</span><span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300"><WifiOff size={14}/> No internet</span></div>
-      <h1 className="mt-5 text-4xl font-black tracking-[-.045em] sm:text-6xl">Move files with <span className="text-gradient">QR frames.</span></h1>
-      <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--text-muted)] sm:text-base">An offline, byte-accurate transfer protocol. The sender displays QR frames and the receiver continuously collects them.</p>
+      <div className="flex flex-wrap gap-2"><span className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[.18em] text-cyan-200"><Radio size={14}/> OR Transfer 2.0</span><span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300"><WifiOff size={14}/> Offline optical</span></div>
+      <h1 className="mt-5 text-4xl font-black tracking-[-.045em] sm:text-6xl">Fast file transfer <span className="text-gradient">without internet.</span></h1>
+      <p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--text-muted)] sm:text-base">Four optical lanes + fountain recovery. Dropped, duplicated and out-of-order QR frames are expected; the receiver reconstructs the original bytes and verifies SHA-256.</p>
     </div>
-    <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1"><button onClick={()=>{stopReceive();setTab('send')}} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab==='send'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}><FileUp size={15} className="mr-2 inline"/>Send</button><button onClick={()=>setTab('receive')} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab==='receive'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}><ScanLine size={15} className="mr-2 inline"/>Receive</button></div>
-    {tab==='send'?<div className="mt-5 grid gap-5 lg:grid-cols-[.85fr_1fr]">
-      <div className="glass-panel rounded-[28px] p-5"><input ref={inputRef} type="file" className="sr-only" onChange={e=>{void choose(e.target.files?.[0]);e.currentTarget.value='';}}/><button onClick={()=>inputRef.current?.click()} className="w-full rounded-[24px] border border-dashed border-cyan-300/30 bg-cyan-300/[.05] p-8 text-center"><FileUp className="mx-auto text-cyan-300" size={30}/><p className="mt-3 font-bold">Choose any file</p><p className="mt-1 text-xs text-[var(--text-muted)]">Up to 100 MB · processed locally</p></button>{file&&<div className="mt-4 rounded-2xl bg-white/5 p-4"><p className="truncate font-bold">{file.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(file.size/1024/1024).toFixed(2)} MB · {plan?.total ?? 0} QR frames</p></div>}<div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-white/5 p-4"><ShieldCheck size={18} className="text-emerald-300"/><p className="mt-2 text-sm font-bold">Byte-accurate</p><p className="mt-1 text-xs text-[var(--text-muted)]">SHA-256 verifies the reconstructed file.</p></div><div className="rounded-2xl bg-white/5 p-4"><LockKeyhole size={18} className="text-cyan-300"/><p className="mt-2 text-sm font-bold">Local only</p><p className="mt-1 text-xs text-[var(--text-muted)]">No upload or server is involved.</p></div></div></div>
-      <div ref={playerRef} className="glass-panel rounded-[28px] p-5">{qr?<><div className="rounded-[28px] bg-white p-5"><img src={qr} alt="OR Transfer high-speed QR grid" className="mx-auto max-h-[78vh] w-full max-w-[900px] object-contain" style={{imageRendering:'pixelated'}}/></div><div className="mt-4 flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold">QR group {index+1} / {Math.ceil((plan?.total ?? 0)/OR_TRANSFER_GRID_SIZE)} · {OR_TRANSFER_GRID_SIZE} lanes</p><div className="flex flex-wrap gap-2"><button disabled={!plan} onClick={()=>setIndex(i=>Math.max(0,i-1))} className="rounded-full bg-white/10 px-4 py-2 text-sm">Prev</button><button disabled={!plan} onClick={()=>setIndex(i=>Math.min(Math.max(0,Math.ceil((plan?.total ?? 1)/OR_TRANSFER_GRID_SIZE)-1),i+1))} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">Next</button><button disabled={!plan || plan.total<2} onClick={()=>playing?stopPlayback():setPlaying(true)} className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950">{playing?'Pause':'Play stream'}</button><button disabled={!plan} onClick={()=>fullscreen?void exitFullscreen():void enterFullscreen()} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950">{fullscreen?'Exit full screen':'Full screen'}</button></div></div><div className="mt-3 flex items-center gap-3 text-xs text-[var(--text-muted)]"><span>Frame interval</span><select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5"><option value="120">Ultra · 120ms</option><option value="180">Fast · 180ms</option><option value="250">Recommended · 250ms</option><option value="350">Safe · 350ms</option><option value="500">Compatibility · 500ms</option></select></div><p className="mt-3 text-center text-xs leading-5 text-[var(--text-muted)]">High-speed mode shows four independent QR lanes at once. Keep the sender bright and steady; missed frames are recovered by the looping stream.</p></>:<div className="grid min-h-[520px] place-items-center text-center text-[var(--text-muted)]"><Radio size={36} className="mx-auto text-cyan-300"/><p className="mt-3 font-bold text-[var(--text)]">Transfer QR will appear here</p><p className="mt-1 text-sm">Choose a file to begin.</p></div>}</div>
-    </div>:<div className="mt-5 glass-panel rounded-[28px] p-5">
-      <div className="grid gap-5 lg:grid-cols-[1fr_.8fr]">
-        <div className="overflow-hidden rounded-[24px] bg-black/20"><video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline/></div>
-        <div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={()=>receiving?stopReceive():void startReceive()} className="rounded-full bg-white px-5 py-3 text-sm font-bold text-slate-950">{receiving?'Stop camera':'Start receiving'}</button>
-            {progress&&<button onClick={()=>{void clearTransfer(progress.session);setProgress(null);setError('');}} className="rounded-full bg-white/10 px-4 py-3 text-sm font-bold text-[var(--text)]">Reset session</button>}
-          </div>
-          {progress&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4">
-            <p className="truncate text-sm font-bold">{progress.name}</p>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{progress.received} / {progress.total} unique frames · {progress.duplicates} duplicate reads</p>
-            <div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.round(progress.received/progress.total*100)}%`}}/></div>
-            {progress.missingCount>0&&<div className="mt-3 rounded-xl bg-white/5 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-[.14em] text-cyan-300">Recovery status</p>
-              <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{progress.missingCount} frame{progress.missingCount===1?'':'s'} still missing. Keep the sender looping and keep scanning.</p>
-              {progress.missing&&<p className="mt-1 break-words text-[11px] leading-5 text-[var(--text-muted)]">Missing: {progress.missing.slice(0,40).join(', ')}{progress.missing.length>40?` +${progress.missing.length-40} more`:''}</p>}
-              <button onClick={()=>{void (async()=>{const missing=await getTransferMissingFrames(progress.session);setProgress(prev=>prev?{...prev,missing}:prev);})();}} className="mt-3 rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-[var(--text)]">Show missing frames</button>
-            </div>}
-            {progress.missingCount===0&&<p className="mt-3 text-xs leading-5 text-emerald-300">All frames received. Verifying the original file…</p>}
-          </div>}
-          {result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><ShieldCheck className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}
-          {error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}
-          {!progress&&!result&&!error&&<p className="mt-5 text-sm leading-6 text-[var(--text-muted)]">Start the receiver, then point this camera at the sender’s looping OR Transfer QR stream. Frames may arrive out of order and duplicates are ignored.</p>}
-          {savedSessions.length>0&&!progress&&!result&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[.14em] text-cyan-300">Saved local sessions</p>
-            <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">Incomplete transfers survive a page refresh on this device. Start scanning to continue collecting the remaining frames.</p>
-            <div className="mt-3 space-y-2">{savedSessions.map(session=><div key={session.id} className="flex items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-2.5"><div className="min-w-0"><p className="truncate text-xs font-bold">{session.name}</p><p className="text-[11px] text-[var(--text-muted)]">{session.received} / {session.total} frames already saved</p></div><button onClick={()=>setProgress({session:session.id,received:session.received,total:session.total,name:session.name,missingCount:session.total-session.received,missing:null,duplicates:0})} className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-bold text-[var(--text)]">Resume</button></div>)}</div>
-          </div>}
+
+    <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1">
+      <button onClick={()=>{stopReceive();setTab('send')}} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab==='send'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}><FileUp size={15} className="mr-2 inline"/>Send</button>
+      <button onClick={()=>setTab('receive')} className={`rounded-xl px-4 py-3 text-sm font-bold ${tab==='receive'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}><ScanLine size={15} className="mr-2 inline"/>Receive</button>
+    </div>
+
+    {tab==='send' ? <div className="mt-5 grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
+      <div className="glass-panel rounded-[28px] p-5">
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1">
+          <button onClick={()=>{stopPlayback();setMode('fountain');setFountain(null);setCompat(null);setFile(null);}} className={`rounded-xl px-3 py-3 text-xs font-bold ${mode==='fountain'?'bg-cyan-300 text-slate-950':'text-[var(--text-muted)]'}`}>Fountain speed</button>
+          <button onClick={()=>{stopPlayback();setMode('compatibility');setFountain(null);setCompat(null);setFile(null);}} className={`rounded-xl px-3 py-3 text-xs font-bold ${mode==='compatibility'?'bg-white text-slate-950':'text-[var(--text-muted)]'}`}>Compatibility</button>
+        </div>
+        <input ref={inputRef} type="file" className="sr-only" onChange={e=>{void choose(e.target.files?.[0]);e.currentTarget.value='';}}/>
+        <button onClick={()=>inputRef.current?.click()} className="mt-4 w-full rounded-[24px] border border-dashed border-cyan-300/30 bg-cyan-300/[.05] p-8 text-center"><FileUp className="mx-auto text-cyan-300" size={30}/><p className="mt-3 font-bold">Choose any file</p><p className="mt-1 text-xs text-[var(--text-muted)]">{mode==='fountain'?'Up to 64 MB · fountain recovery':'Up to 100 MB · exact sequential recovery'}</p></button>
+        {file&&<div className="mt-4 rounded-2xl bg-white/5 p-4"><p className="truncate font-bold">{file.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(file.size/1024/1024).toFixed(2)} MB · {mode==='fountain'?`${fountain?.blocks.toLocaleString()} source blocks`:`${compat?.total.toLocaleString()} QR frames`}</p></div>}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl bg-white/5 p-4"><Gauge size={18} className="text-cyan-300"/><p className="mt-2 text-sm font-bold">High-speed stream</p><p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">Four independent QR lanes, adaptive playback and continuous recovery.</p></div>
+          <div className="rounded-2xl bg-white/5 p-4"><ShieldCheck size={18} className="text-emerald-300"/><p className="mt-2 text-sm font-bold">Integrity verified</p><p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">The completed file must match the original SHA-256 hash.</p></div>
         </div>
       </div>
+      <div className="glass-panel rounded-[28px] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">Live optical stream</p><p className="mt-1 text-sm text-[var(--text-muted)]">{fountain?'Fountain droplets · systematic + random recovery lanes':compat?'Sequential compatibility stream':'Choose a file to begin'}</p></div>{(fountain||compat)&&<button onClick={()=>setPlaying(v=>!v)} className="rounded-full bg-white px-4 py-2 text-xs font-black text-slate-950">{playing?'Pause':'Start stream'}</button>}</div>
+        {qr?<img src={qr} alt="OR Transfer QR stream" className="mx-auto mt-5 aspect-square w-full max-w-[620px] rounded-2xl bg-white p-2"/>:<div className="mt-5 grid aspect-square place-items-center rounded-2xl bg-black/20 text-sm text-[var(--text-muted)]">QR stream preview</div>}
+        {(fountain||compat)&&<div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Speed<select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="60">60 ms · extreme</option><option value="80">80 ms · very fast</option><option value="100">100 ms · recommended</option><option value="150">150 ms · safe</option><option value="250">250 ms · compatibility</option></select></label><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Payload</b><p className="mt-1 text-[var(--text-muted)]">{fountain?FOUNTAIN_BLOCK_BYTES+' bytes/block':'~1875 bytes/frame'}</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Lanes</b><p className="mt-1 text-[var(--text-muted)]">4 QR codes</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Recovery</b><p className="mt-1 text-[var(--text-muted)]">{fountain?'Fountain':'Sequential'}</p></div></div>}
+      </div>
+    </div> : <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_.8fr]">
+      <div className="glass-panel overflow-hidden rounded-[28px] p-4"><video ref={videoRef} muted playsInline className="aspect-video w-full rounded-2xl bg-black object-cover"/><div className="mt-3 flex flex-wrap gap-2"><button onClick={()=>{if(receiving)stopReceive();else void startReceive();}} className="rounded-full bg-white px-4 py-2 text-sm font-black text-slate-950">{receiving?'Stop receiver':'Start receiver'}</button><span className="rounded-full bg-emerald-400/10 px-3 py-2 text-xs font-bold text-emerald-300">{receiving?'Scanning 4 QR lanes':'Camera idle'}</span></div></div>
+      <div className="glass-panel rounded-[28px] p-5"><LockKeyhole size={20} className="text-cyan-300"/><p className="mt-3 font-bold">Loss-tolerant receiver</p><p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">Start the receiver before or after the sender. Fountain mode does not require frame 1, frame 2, frame 3… in order.</p>{progress&&<div className="mt-5 rounded-2xl bg-white/5 p-4"><p className="truncate text-sm font-bold">{progress.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{progress.mode==='fountain'?`${progress.received.toLocaleString()} unique droplets · ${progress.total.toLocaleString()} source blocks`:`${progress.received} / ${progress.total} frames`}</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100,Math.round(progress.received/progress.total*100))}%`}}/></div></div>}{result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><CheckCircle2 className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}{error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}</div>
     </div>}
-    <div className="mt-5 grid gap-3 md:grid-cols-3">{[['01','Split','Original bytes are split into QR-safe frames.'],['02','Scan','The receiver collects frames automatically.'],['03','Verify','SHA-256 confirms the exact original file.']].map(([n,t,d])=><div key={n} className="glass-panel rounded-[24px] p-5"><span className="text-xs font-black text-cyan-300">{n}</span><h2 className="mt-2 font-bold">{t}</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{d}</p></div>)}</div>
+    <div className="mt-5 grid gap-3 md:grid-cols-3">{[['01','Encode','The file becomes source blocks and optical droplets.'],['02','Stream','Four QR lanes continuously send different information.'],['03','Recover','Missing frames are tolerated and SHA-256 verifies the result.']].map(([n,t,d])=><div key={n} className="glass-panel rounded-[24px] p-5"><span className="text-xs font-black text-cyan-300">{n}</span><h2 className="mt-2 font-bold">{t}</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{d}</p></div>)}</div>
   </section>;
 }
