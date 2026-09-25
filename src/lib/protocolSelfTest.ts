@@ -2,6 +2,7 @@ import { analyzeScan } from './scan';
 import { QrEncodePool } from './qrEncodePool';
 import { optiFrameSelfTest } from './optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from './optiframeStream';
+import { OptiFrameDecodePool } from './optiframeDecodePool';
 import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
   addMultiImageChunk,
@@ -345,6 +346,32 @@ async function qrEncoderWorkerDiagnostic() {
   }
 }
 
+async function optiFrameWorkerDiagnostic() {
+  if (typeof Worker === 'undefined') return 'Worker API unavailable; main-thread decoder retained.';
+
+  const payload = new TextEncoder().encode('OptiFrame worker diagnostic ✓');
+  const encoded = optiFrameSelfTest();
+  assert(encoded.capacityBytes > payload.length, 'OptiFrame worker fixture capacity is too small.');
+
+  const { encodeOptiFrame } = await import('./optiframe');
+  const frame = encodeOptiFrame(payload, 3, 9);
+  const ctx = frame.canvas.getContext('2d', { willReadFrequently: true });
+  assert(ctx, 'OptiFrame worker fixture canvas context unavailable.');
+  const image = ctx.getImageData(0, 0, frame.canvas.width, frame.canvas.height);
+  const pool = new OptiFrameDecodePool(true);
+
+  try {
+    const result = await pool.decode(image.data.buffer.slice(0), image.width, image.height);
+    assert(result, 'OptiFrame worker returned no decoded frame.');
+    assert(result.frame.sequence === 3 && result.frame.total === 9, 'OptiFrame worker metadata mismatch.');
+    expectEqualBytes(result.frame.payload, payload, 'OptiFrame worker payload');
+    assert(result.diagnostics.confidence > 0.7, 'OptiFrame worker confidence was unexpectedly low.');
+    return 'Worker round trip · CRC-32 verified · ' + Math.round(result.workerMs) + ' ms wall time';
+  } finally {
+    pool.terminate();
+  }
+}
+
 async function optiFrameStreamReassembly() {
   const text = 'OptiCode OptiFrame stream diagnostic · out-of-order · duplicates · UTF-8 ✓';
   const payload = new TextEncoder().encode(text.repeat(90));
@@ -490,6 +517,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OR Transfer · fountain seed continuity', fountainSeedContinuity),
     runCase('Performance · QR encoder worker', qrEncoderWorkerDiagnostic),
     runCase('OptiFrame · custom codec round trip', async () => { const r = optiFrameSelfTest(); return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified'; }),
+    runCase('OptiFrame · worker perspective decode', optiFrameWorkerDiagnostic),
     runCase('OptiFrame · multi-frame reassembly', optiFrameStreamReassembly),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
