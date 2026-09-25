@@ -41,15 +41,16 @@ function fromBase64(value: string) {
 }
 
 async function shortHash(bytes: Uint8Array) {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest)).slice(0, 8).map(v => v.toString(16).padStart(2, '0')).join('');
+  const safeBuffer = bytes.slice().buffer as ArrayBuffer;
+  const digest = await crypto.subtle.digest('SHA-256', safeBuffer);
+  return Array.from(new Uint8Array(digest)).map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
 export async function encodeImageForMultiQr(file: File) {
   if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
   if (file.size > 25 * 1024 * 1024) throw new Error('For Multi-QR Photo, choose an image smaller than 25 MB.');
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const id = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
+  const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
   const hash = await shortHash(bytes);
   const base = `${MULTI_IMAGE_QR_PREFIX}${id}|${file.type}|${hash}|`;
   const encoded = toBase64(bytes);
