@@ -433,7 +433,7 @@ export function OptiFrameLab() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 60 } },
         audio: false,
       });
       streamRef.current = stream;
@@ -530,7 +530,7 @@ export function OptiFrameLab() {
             <div className="relative aspect-[4/3]">
               <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
               {!cameraOn && <div className="absolute inset-0 grid place-items-center bg-black/55"><div className="text-center"><ScanLine size={28} className="mx-auto text-white/70"/><p className="mt-3 text-sm font-bold text-white">Point the camera at an OptiFrame</p><p className="mt-1 text-xs text-white/50">Keep all four finder anchors visible.</p></div></div>}
-              {cameraOn && <div className="pointer-events-none absolute inset-[7%] rounded-[24px] border border-cyan-300/60 shadow-[0_0_0_999px_rgba(0,0,0,.18)]"><div className="absolute inset-4 border border-white/15"/></div>}
+              {cameraOn && <div className="pointer-events-none absolute inset-[5%] rounded-[28px] border-2 border-cyan-300/70 shadow-[0_0_0_999px_rgba(0,0,0,.16),0_0_32px_rgba(34,211,238,.2)]"><div className="absolute inset-4 border border-white/15"/></div>}
             </div>
           </div>
           {cameraError && <div className="mt-3 rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-xs leading-6 text-rose-100">{cameraError}</div>}
