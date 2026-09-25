@@ -210,8 +210,8 @@ export function Transfer() {
 
   async function consumeDetected(found:Array<{rawValue?:string}>,decodeMs:number){
     const values=found.map(item=>item.rawValue).filter((value):value is string=>Boolean(value));
-    recordBenchmark(values,decodeMs);
     await Promise.all(values.map(value=>processValue(value)));
+    recordBenchmark(values,decodeMs);
     return values.length;
   }
 
@@ -266,15 +266,24 @@ export function Transfer() {
             ctx.drawImage(video,0,0,w,h);
             const image=ctx.getImageData(0,0,w,h);
             const pool=qrPoolRef.current;
-            const maxDepth=telemetry.decodeMs>75?1:2;
+            const maxDepth=scanDelayRef.current>100?1:2;
             const job=pool.decode(image.data.buffer,w,h,maxDepth);
             if(job){
               try{
                 const decoded=await job;
-                recordBenchmark(decoded.values,decoded.processingMs);
                 await Promise.all(decoded.values.map(value=>processValue(value)));
+                recordBenchmark(decoded.values,decoded.processingMs);
                 const decodeMs=decoded.processingMs;
-                setTelemetry(prev=>({...prev,decodeMs:prev.decodeMs===0?decodeMs:prev.decodeMs*.7+decodeMs*.3,detectedPerSecond:decoded.values.length>0?prev.detectedPerSecond:prev.detectedPerSecond}));
+                const now=performance.now();
+                if(receiverStartedRef.current===null)receiverStartedRef.current=started;
+                if(detectedWindowRef.current.started===0)detectedWindowRef.current.started=now;
+                detectedWindowRef.current.count+=decoded.values.length;
+                const windowMs=now-detectedWindowRef.current.started;
+                if(windowMs>=500){
+                  const elapsed=Math.max(.001,(now-(receiverStartedRef.current??now))/1000);
+                  setTelemetry(prev=>({...prev,startedAt:receiverStartedRef.current,detectedPerSecond:detectedWindowRef.current.count/(windowMs/1000),solvedPerSecond:solvedRef.current/elapsed,goodputKbps:(decodedBytesRef.current/1024)/elapsed,duplicates:duplicateCountRef.current,decodeMs:prev.decodeMs===0?decodeMs:prev.decodeMs*.7+decodeMs*.3,scanDelayMs:scanDelayRef.current}));
+                  detectedWindowRef.current={started:now,count:0};
+                }
                 scanDelayRef.current=decodeMs>75?Math.min(180,Math.max(70,Math.round(decodeMs*.9))):decoded.values.length>0?Math.max(25,scanDelayRef.current-4):Math.min(85,scanDelayRef.current+2);
               }catch(e){setError(e instanceof Error?e.message:'QR decoder worker failed.');}
             }
