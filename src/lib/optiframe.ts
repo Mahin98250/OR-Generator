@@ -183,6 +183,7 @@ function quantize(v: number) {
 
 function decodeAxisAlignedImage(image: ImageData) {
   if (image.width !== OPTIFRAME_SIZE || image.height !== OPTIFRAME_SIZE) return null;
+  const moduleScale = anchors.reduce((sum, anchor) => sum + anchor.scale, 0) / anchors.length;
   const bits: number[] = [];
   for (let r = 0; r < OPTIFRAME_SIZE; r++) {
     for (let col = 0; col < OPTIFRAME_SIZE; col++) {
@@ -496,7 +497,6 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
       if (isFinderCell(r, c)) continue;
       const [sx, sy] = project(reverse, c, r);
       if (sx < 0 || sy < 0 || sx >= image.width || sy >= image.height) return null;
-      const moduleScale = anchors.reduce((sum, anchor) => sum + anchor.scale, 0) / anchors.length;
       const raw = sampleModule(image, sx, sy, moduleScale);
       const normalized = Math.max(0, Math.min(255, (raw - calibration.dark) * 255 / (calibration.light - calibration.dark)));
       const level = quantize(normalized);
