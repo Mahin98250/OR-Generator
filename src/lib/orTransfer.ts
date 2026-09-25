@@ -44,6 +44,14 @@ export function parseTransferFrame(value:string): TransferFrame | null {
   if (!session||!mimeRaw||!nameRaw||!hash||!data||!Number.isInteger(index)||!Number.isInteger(total)||!Number.isInteger(size)||index<1||total<index) return null;
   try { return {session,mime:decodeURIComponent(mimeRaw),name:decodeName(nameRaw),size,hash,index,total,data}; } catch { return null; }
 }
+export function getTransferMissingFrames(session:string) {
+  const raw=sessionStorage.getItem(`or-transfer-${session}`); if(!raw) return [];
+  const state=JSON.parse(raw) as {total:number;chunks:Record<string,string>};
+  const missing:number[]=[]; for(let i=1;i<=state.total;i++) if(!state.chunks[String(i)]) missing.push(i); return missing;
+}
+
+export function clearTransfer(session:string) { sessionStorage.removeItem(`or-transfer-${session}`); }
+
 export function addTransferFrame(frame:TransferFrame) {
   const key=`or-transfer-${frame.session}`;
   const current=JSON.parse(sessionStorage.getItem(key)||'null') as {mime:string;name:string;size:number;hash:string;total:number;chunks:Record<string,string>}|null;
