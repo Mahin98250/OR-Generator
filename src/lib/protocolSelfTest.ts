@@ -1,6 +1,7 @@
 import { analyzeScan } from './scan';
 import { QrEncodePool } from './qrEncodePool';
 import { optiFrameSelfTest } from './optiframe';
+import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from './optiframeStream';
 import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
   addMultiImageChunk,
@@ -344,6 +345,25 @@ async function qrEncoderWorkerDiagnostic() {
   }
 }
 
+async function optiFrameStreamReassembly() {
+  const text = 'OptiCode OptiFrame stream diagnostic · out-of-order · duplicates · UTF-8 ✓';
+  const payload = new TextEncoder().encode(text.repeat(90));
+  const chunks = splitOptiFramePayload(payload, 640);
+  const total = chunks.length;
+  const assembler = new OptiFrameAssembler();
+  const order = [...chunks.keys()].reverse();
+  for (const index of order) {
+    const frame = { version: 1, sequence: index, total, payload: chunks[index] };
+    assembler.add(frame);
+  }
+  const duplicate = assembler.add({ version: 1, sequence: 2, total, payload: chunks[2] });
+  assert(duplicate.received === total, 'Duplicate OptiFrame altered received-frame accounting.');
+  assert(duplicate.complete, 'OptiFrame stream did not reassemble after out-of-order delivery.');
+  assert(duplicate.payload, 'OptiFrame stream returned no reconstructed payload.');
+  assert(utf8ToText(duplicate.payload) === text.repeat(90), 'OptiFrame stream payload changed during reassembly.');
+  return total + ' fragments · reverse order · duplicate tolerance · exact UTF-8 reassembly';
+}
+
 async function scanFormatCompatibility() {
   const cases = [
     { input: 'https://example.com', kind: 'url', title: 'Website' },
@@ -470,6 +490,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OR Transfer · fountain seed continuity', fountainSeedContinuity),
     runCase('Performance · QR encoder worker', qrEncoderWorkerDiagnostic),
     runCase('OptiFrame · custom codec round trip', async () => { const r = optiFrameSelfTest(); return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified'; }),
+    runCase('OptiFrame · multi-frame reassembly', optiFrameStreamReassembly),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
