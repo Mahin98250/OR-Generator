@@ -123,6 +123,17 @@ export async function getChunks(sessionKey: string) {
   return requestResult<StoredChunk[]>(index.getAll(sessionKey));
 }
 
+export async function getChunkIndexes(sessionKey: string) {
+  const db = await openDb();
+  const tx = db.transaction('chunks', 'readonly');
+  const index = tx.objectStore('chunks').index('sessionKey');
+  const keys = await requestResult<IDBValidKey[]>(index.getAllKeys(sessionKey));
+  return keys
+    .map((key) => Number(String(key).slice(sessionKey.length + 1)))
+    .filter((value) => Number.isInteger(value) && value > 0)
+    .sort((a, b) => a - b);
+}
+
 export async function clearSession(key: string) {
   const db = await openDb();
 
