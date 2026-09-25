@@ -19,6 +19,9 @@ type CameraStats = {
   captureFps: number;
   decodeFps: number;
   goodputBps: number;
+  lastConfidence: number;
+  cameraWidth: number;
+  cameraHeight: number;
   startedAt: number | null;
 };
 
@@ -37,6 +40,7 @@ export function OptiFrameLab() {
   const [streamPlaying, setStreamPlaying] = useState(false);
   const [streamIndex, setStreamIndex] = useState(0);
   const [laneCount, setLaneCount] = useState<OptiLaneCount>(1);
+  const [streamIntervalMs, setStreamIntervalMs] = useState(300);
 
   const capacity = useMemo(() => getOptiFrameCapacity(), []);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -46,6 +50,7 @@ export function OptiFrameLab() {
   const assemblerRef = useRef(new OptiFrameAssembler());
   const decodePoolRef = useRef(new OptiFrameDecodePool());
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const seenSequenceRef = useRef(new Set<number>());
   const trackedAnchorsRef = useRef<OptiFramePerspectiveDiagnostics['anchors'] | null>(null);
   const framesSinceFullScanRef = useRef(0);
@@ -75,23 +80,35 @@ export function OptiFrameLab() {
     if (!streamPlaying) return;
     senderTimerRef.current = window.setInterval(() => {
       setStreamIndex(index => (index + laneCount) % Math.max(1, streamPayload.length));
-    }, 300);
+    }, streamIntervalMs);
     return () => {
       if (senderTimerRef.current !== null) window.clearInterval(senderTimerRef.current);
       senderTimerRef.current = null;
     };
   }, [streamPlaying, streamPayload.length]);
 
-  const streamFrame = useMemo(() => {
+  const streamSurface = useMemo(() => {
     try {
       const payloads = Array.from({ length: laneCount }, (_, lane) =>
         streamPayload[(streamIndex + lane) % Math.max(1, streamPayload.length)] ?? new Uint8Array(),
       );
-      return createOptiLaneSurface(payloads, streamIndex, Math.max(1, streamPayload.length), laneCount).canvas.toDataURL('image/png');
+      return createOptiLaneSurface(payloads, streamIndex, Math.max(1, streamPayload.length), laneCount).canvas;
     } catch {
-      return '';
+      return null;
     }
   }, [streamPayload, streamIndex, laneCount]);
+
+  useEffect(() => {
+    const target = streamCanvasRef.current;
+    if (!target || !streamSurface) return;
+    target.width = streamSurface.width;
+    target.height = streamSurface.height;
+    const ctx = target.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, target.width, target.height);
+    ctx.drawImage(streamSurface, 0, 0);
+  }, [streamSurface]);
 
   function generate() {
     try {
@@ -206,11 +223,11 @@ export function OptiFrameLab() {
 
     const runWorker = async (target: ImageData) => {
       const job = decodePoolRef.current.decode(target.data.buffer.slice(0), target.width, target.height);
-      if (!job) return { result: null as Awaited<ReturnType<OptiFrameDecodePool['decode']>>, dropped: true };
+      if (!job) return { result: null as Awaited<ReturnType<OptiFrameDecodePool['decode']>>, dropped: true, failed: false };
       try {
-        return { result: await job, dropped: false };
+        return { result: await job, dropped: false, failed: false };
       } catch {
-        return { result: null as Awaited<ReturnType<OptiFrameDecodePool['decode']>>, dropped: false };
+        return { result: null as Awaited<ReturnType<OptiFrameDecodePool['decode']>>, dropped: false, failed: true };
       }
     };
 
@@ -251,7 +268,7 @@ export function OptiFrameLab() {
         const worker = workerResults[index] ?? null;
         const result = worker
           ? { frame: worker.frame, diagnostics: worker.diagnostics }
-          : runLocal(lane.image);
+          : (decodePoolRef.current.capacity === 0 ? runLocal(lane.image) : null);
         return { lane, result, worker };
       });
       const successes = laneResults.filter(entry => entry.result);
@@ -309,6 +326,7 @@ export function OptiFrameLab() {
         decodeFps: elapsedFromStart ? (prev.hits + successes.length) / elapsedFromStart : 0,
         bytes: assembly.bytes,
         goodputBps: elapsedFromStart ? assembly.bytes / elapsedFromStart : 0,
+        lastConfidence: successes.reduce((sum, entry) => sum + (entry.result?.diagnostics.confidence ?? 0), 0) / successes.length,
       }));
 
       setReceiver({
@@ -333,7 +351,9 @@ export function OptiFrameLab() {
       const worker = await runWorker(trackedCrop.image);
       workerResult = worker.result;
       dropped = worker.dropped;
-      result = worker.result ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics } : runLocal(trackedCrop.image);
+      result = worker.result
+        ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics }
+        : (worker.dropped || worker.failed || decodePoolRef.current.capacity === 0 ? runLocal(trackedCrop.image) : null);
       cropOffset = { x: trackedCrop.offsetX, y: trackedCrop.offsetY };
     }
 
@@ -342,7 +362,9 @@ export function OptiFrameLab() {
       const worker = await runWorker(image);
       workerResult = worker.result;
       dropped = dropped || worker.dropped;
-      result = worker.result ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics } : runLocal(image);
+      result = worker.result
+        ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics }
+        : (worker.dropped || worker.failed || decodePoolRef.current.capacity === 0 ? runLocal(image) : null);
       cropOffset = { x: 0, y: 0 };
     }
 
@@ -378,6 +400,7 @@ export function OptiFrameLab() {
         dropped: prev.dropped + (dropped ? 1 : 0),
         captureFps: elapsedFromStart ? (prev.attempts + 1) / elapsedFromStart : 0,
         decodeFps: elapsedFromStart ? nextHits / elapsedFromStart : 0,
+        lastConfidence: result ? result.diagnostics.confidence : prev.lastConfidence,
       };
     });
 
@@ -432,14 +455,26 @@ export function OptiFrameLab() {
     framesSinceFullScanRef.current = 0;
     setReceiver({ total: 0, received: 0, bytes: 0, missing: [], complete: false });
     setCameraDecoded('');
-    setCameraStats({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, startedAt: performance.now() });
+    setCameraStats({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0, cameraWidth: 0, cameraHeight: 0, startedAt: performance.now() });
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 60 } },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { min: 960, ideal: 1920, max: 1920 },
+          height: { min: 540, ideal: 1080, max: 1080 },
+          aspectRatio: { ideal: 16 / 9 },
+          frameRate: { ideal: 30, max: 30 },
+        },
         audio: false,
       });
       streamRef.current = stream;
+      const settings = stream.getVideoTracks()[0]?.getSettings();
+      setCameraStats(prev => ({
+        ...prev,
+        cameraWidth: settings?.width ?? 0,
+        cameraHeight: settings?.height ?? 0,
+      }));
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
@@ -470,7 +505,7 @@ export function OptiFrameLab() {
     framesSinceFullScanRef.current = 0;
     setReceiver({ total: 0, received: 0, bytes: 0, missing: [], complete: false });
     setCameraDecoded('');
-    setCameraStats(prev => ({ ...prev, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0 }));
+    setCameraStats(prev => ({ ...prev, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0 }));
   }
 
   return (
@@ -512,10 +547,25 @@ export function OptiFrameLab() {
           </div>
           <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><div><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">Parallel lanes</p><p className="mt-1 text-xs text-[var(--text-muted)]">Each lane carries an independent OptiFrame.</p></div><div className="flex rounded-full border border-[var(--border)] p-1">{([1, 2, 4] as OptiLaneCount[]).map(count => <button key={count} onClick={() => setLaneCount(count)} className={laneCount === count ? 'rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-slate-950' : 'rounded-full px-3 py-1.5 text-[10px] font-black text-[var(--text-muted)]'}>{count}×</button>)}</div></div>
           <div className="mt-5 grid place-items-center rounded-[26px] bg-white p-4">
-            {streamFrame ? <img src={streamFrame} alt="OptiFrame stream frame" className="block aspect-square w-full max-w-[760px] [image-rendering:pixelated]" /> : <div className="aspect-square w-full max-w-[560px]" />}
+            {streamSurface ? (
+              <canvas
+                ref={streamCanvasRef}
+                aria-label="OptiFrame optical stream surface"
+                className={`block h-auto w-full max-w-[760px] ${laneCount === 2 ? 'aspect-[2/1]' : 'aspect-square'}`}
+              />
+            ) : <div className={laneCount === 2 ? 'aspect-[2/1] w-full max-w-[760px]' : 'aspect-square w-full max-w-[760px]'} />}
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <GlassButton onClick={() => setStreamPlaying(value => !value)}>{streamPlaying ? <Pause size={14}/> : <Play size={14}/>} {streamPlaying ? 'Pause stream' : 'Play stream'}</GlassButton>
+            <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text)]">
+              Speed
+              <select value={streamIntervalMs} onChange={event => setStreamIntervalMs(Number(event.target.value))} className="bg-transparent outline-none">
+                <option value={500}>500 ms</option>
+                <option value={300}>300 ms</option>
+                <option value={180}>180 ms</option>
+                <option value={120}>120 ms</option>
+              </select>
+            </label>
             <button onClick={() => setStreamIndex(index => (index + streamPayload.length - laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Previous</button>
             <button onClick={() => setStreamIndex(index => (index + laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Next</button>
           </div>
@@ -537,7 +587,7 @@ export function OptiFrameLab() {
             </div>
           </div>
           {cameraError && <div className="mt-3 rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-xs leading-6 text-rose-100">{cameraError}</div>}
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Attempts</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.attempts}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decoded</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.hits}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Dropped</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.dropped}</p></div>
@@ -546,6 +596,8 @@ export function OptiFrameLab() {
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Goodput</p><p className="mt-1 text-lg font-black text-[var(--text)]">{(cameraStats.goodputBps / 1024).toFixed(1)} KB/s</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Workers</p><p className="mt-1 text-lg font-black text-[var(--text)]">{decodePoolRef.current.busyCount}/{decodePoolRef.current.capacity}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decode FPS</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.decodeFps.toFixed(1)}</p></div>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Anchor confidence</p><p className="mt-1 text-lg font-black text-[var(--text)]">{Math.round(cameraStats.lastConfidence * 100)}%</p></div>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Camera</p><p className="mt-1 text-sm font-black text-[var(--text)]">{cameraStats.cameraWidth && cameraStats.cameraHeight ? `${cameraStats.cameraWidth}×${cameraStats.cameraHeight}` : '—'}</p></div>
           </div>
         </GlassCard>
 
