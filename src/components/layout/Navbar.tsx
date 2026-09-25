@@ -11,6 +11,7 @@ const links = [
   { to: '/history', label: 'Library' },
   { to: '/statistics', label: 'Stats', icon: BarChart3 },
   { to: '/tools', label: 'Tools' },
+  { to: '/transfer', label: 'Transfer' },
   { to: '/settings', label: 'Settings' },
 ];
 
