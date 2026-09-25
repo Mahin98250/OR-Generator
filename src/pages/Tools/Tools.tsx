@@ -199,9 +199,9 @@ export function Tools() {
             <GlassButton onClick={() => void copy()} disabled={!result.clean}><Copy size={14} /> Copy cleaned</GlassButton>
             <GlassButton onClick={() => openSearch('google')} disabled={!result.clean}><Search size={14} /> Search web</GlassButton>
             <GlassButton onClick={() => openSearch('shopping')} disabled={!result.clean}><Search size={14} /> Shopping</GlassButton>
-            <GlassButton as any onClick={() => undefined}>
+            <Link to="/scanner" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2 text-sm font-medium text-[var(--text)] transition hover:bg-white/10">
               <ScanLine size={14} /> Scan in camera
-            </GlassButton>
+            </Link>
           </div>
 
           <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_1fr]">
