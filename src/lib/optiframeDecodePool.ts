@@ -40,7 +40,7 @@ export class OptiFrameDecodePool {
   ) {
     if (!enabled) return;
 
-    const count = Math.max(1, Math.min(4, Math.floor(size)));
+    const count = Math.max(0, Math.min(4, Math.floor(size)));
     for (let index = 0; index < count; index += 1) {
       try {
         const worker = new Worker(
