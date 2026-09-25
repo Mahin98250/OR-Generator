@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle2, Clipboard, Copy, Search, ScanBarcode, ScanLine, XCircle } from 'lucide-react';
+import { CheckCircle2, Clipboard, Copy, FlaskConical, Search, ScanBarcode, ScanLine, XCircle } from 'lucide-react';
 import { GlassCard } from '../../components/ui/GlassCard';
 import { GlassButton } from '../../components/ui/GlassButton';
+import { runProtocolDiagnostics, type ProtocolDiagnosticResult } from '../../lib/protocolSelfTest';
 
 type Detected = { type: string; valid: boolean | null; clean: string; message: string };
 
@@ -33,6 +34,17 @@ function detect(input: string): Detected {
 export function Tools() {
   const [value, setValue] = useState('');
   const result = useMemo(() => detect(value), [value]);
+  const [diagnosticRunning, setDiagnosticRunning] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<ProtocolDiagnosticResult[]>([]);
+
+  async function runDiagnostics() {
+    setDiagnosticRunning(true);
+    try {
+      setDiagnostics(await runProtocolDiagnostics());
+    } finally {
+      setDiagnosticRunning(false);
+    }
+  }
 
   function copy() { if (navigator.clipboard && result.clean) void navigator.clipboard.writeText(result.clean); }
   function openSearch(engine: 'google' | 'shopping') {
@@ -81,6 +93,47 @@ export function Tools() {
       <div className="mt-5"><GlassCard>
         <div className="flex items-start gap-3"><Clipboard size={18} className="mt-0.5 text-cyan-300" /><div><p className="font-bold text-[var(--text)]">Daily workflow</p><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">Scan a label → inspect the number → tag it in your Scan Library → search the code when you need product context → keep the result locally for later.</p></div></div>
       </GlassCard></div>
+
+      <div className="mt-5">
+        <GlassCard>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-300"><FlaskConical size={18} /></span>
+              <div>
+                <p className="font-bold text-[var(--text)]">System diagnostics</p>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">Run real browser-side protocol checks for OR Transfer and Multi-QR Photo. The suite exercises IndexedDB storage, out-of-order frames, duplicate reads, missing-frame recovery and SHA-256 integrity verification.</p>
+              </div>
+            </div>
+            <GlassButton onClick={() => void runDiagnostics()} disabled={diagnosticRunning}>
+              <FlaskConical size={14} /> {diagnosticRunning ? 'Running…' : 'Run diagnostics'}
+            </GlassButton>
+          </div>
+          {diagnostics.length > 0 && (
+            <div className="mt-5 space-y-2">
+              <div className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Latest run</p>
+                <p className={diagnostics.every((item) => item.passed) ? 'text-xs font-bold text-emerald-300' : 'text-xs font-bold text-rose-300'}>
+                  {diagnostics.filter((item) => item.passed).length} / {diagnostics.length} passed
+                </p>
+              </div>
+              {diagnostics.map((item) => (
+                <div key={item.name} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    {item.passed ? <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-emerald-300" /> : <XCircle size={17} className="mt-0.5 shrink-0 text-rose-300" />}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <p className="text-sm font-bold text-[var(--text)]">{item.name}</p>
+                        <span className="text-[10px] font-semibold uppercase tracking-[.12em] text-[var(--text-muted)]">{item.durationMs} ms</span>
+                      </div>
+                      <p className="mt-1 break-words text-xs leading-5 text-[var(--text-muted)]">{item.detail}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+      </div>
     </section>
   );
 }
