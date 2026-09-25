@@ -1,7 +1,6 @@
 import { analyzeScan } from './scan';
 import { QrEncodePool } from './qrEncodePool';
 import { optiFrameSelfTest } from './optiframe';
-import { decodeOptiFrame, encodeOptiFrame, renderOptiFrame } from './optiframe';
 import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
   addMultiImageChunk,
@@ -323,20 +322,6 @@ async function fountainSeedContinuity() {
   assert(randomSeeds.size === 2_000, 'Deterministic random seed stream repeated.');
   assert(systematicTargets.size === Math.min(plan.blocks, 1_000), 'Systematic lane did not cycle through source blocks correctly.');
   return '2,000 deterministic random seeds + systematic source coverage verified';
-}
-
-async function optiFrameCodecDiagnostic() {
-  const payload = new Uint8Array(1_200);
-  for (let i = 0; i < payload.length; i += 1) payload[i] = (i * 73 + 19) & 0xff;
-  const cells = encodeOptiFrame(payload, 42);
-  assert(cells.length === 72 * 72, 'OptiFrame matrix has an invalid size.');
-  const canvas = renderOptiFrame(cells, 720);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  assert(ctx, 'OptiFrame diagnostic could not create a canvas context.');
-  const decoded = decodeOptiFrame(ctx.getImageData(0, 0, canvas.width, canvas.height));
-  assert(decoded.sequence === 42, 'OptiFrame sequence was not preserved.');
-  expectEqualBytes(decoded.payload, payload, 'OptiFrame codec round-trip');
-  return '16-level grayscale frame · 1,200-byte payload · CRC verified · render/decode round-trip';
 }
 
 async function qrEncoderWorkerDiagnostic() {
