@@ -9,7 +9,8 @@ type ThemeContextValue = {
 };
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
-const STORAGE_KEY = 'or-generator-theme';
+const STORAGE_KEY = 'opticode-studio-theme';
+const LEGACY_STORAGE_KEY = 'or-generator-theme';
 
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'dark';
@@ -18,7 +19,7 @@ function getSystemTheme(): 'light' | 'dark' {
 
 function readStoredTheme(): Theme {
   if (typeof window === 'undefined') return 'system';
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
   return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
 }
 
