@@ -282,6 +282,7 @@ export function Transfer() {
   async function finishBenchmarkRun(){
     const started=benchmarkStartedRef.current;
     if(started===null)return;
+    benchmarkSamplesRef.current.push({at:performance.now(),bytesRecovered:decodedBytesRef.current,codesObserved:benchmarkCodesRef.current});
     setBenchmark(finishBenchmark(started,benchmarkFramesRef.current,benchmarkCodesRef.current,benchmarkUniqueRef.current.size,benchmarkDecodeSamplesRef.current,decodedBytesRef.current,benchmarkSamplesRef.current));
     setBenchmarking(false);
     benchmarkStartedRef.current=null;
