@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ImagePlus, Link2, Loader2, RotateCcw, Layers3, Download } from 'lucide-react';
+import { ImagePlus, Link2, Loader2, RotateCcw, Layers3, Download, Pause, Play } from 'lucide-react';
 import QRCode from 'qrcode';
 import { GlassButton } from '../ui/GlassButton';
 import { useGenerator } from './GeneratorContext';
@@ -12,6 +12,8 @@ export function GeneratorForm() {
   const [multiPlan, setMultiPlan] = useState<Awaited<ReturnType<typeof encodeImageForMultiQr>> | null>(null);
   const [multiQr, setMultiQr] = useState('');
   const [multiIndex, setMultiIndex] = useState(1);
+  const [multiPlaying, setMultiPlaying] = useState(false);
+  const [multiInterval, setMultiInterval] = useState(1000);
   const [imageName, setImageName] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [imageInfo, setImageInfo] = useState('');
@@ -28,13 +30,17 @@ export function GeneratorForm() {
 
     let cancelled = false;
     void multiPlan.getChunk(multiIndex)
-      .then(chunk => QRCode.toDataURL(chunk, {
-        width: settings.size,
-        margin: settings.margin,
-        errorCorrectionLevel: 'L',
-      }))
+      .then(chunk => {
+        if (cancelled) return;
+        setSettings(prev => ({ ...prev, value: chunk, errorCorrectionLevel: 'L' }));
+        return QRCode.toDataURL(chunk, {
+          width: settings.size,
+          margin: settings.margin,
+          errorCorrectionLevel: 'L',
+        });
+      })
       .then(url => {
-        if (!cancelled) setMultiQr(url);
+        if (!cancelled && url) setMultiQr(url);
       })
       .catch(() => {
         if (!cancelled) setError('Unable to render this Multi-QR frame.');
@@ -43,10 +49,19 @@ export function GeneratorForm() {
     return () => { cancelled = true; };
   }, [multiPlan, multiIndex, settings.size, settings.margin]);
 
+  useEffect(() => {
+    if (!multiPlaying || !multiPlan || multiPlan.total < 2) return;
+
+    const timer = window.setInterval(() => {
+      setMultiIndex(current => current >= multiPlan.total ? 1 : current + 1);
+    }, multiInterval);
+
+    return () => window.clearInterval(timer);
+  }, [multiPlaying, multiPlan, multiInterval]);
 
   async function chooseImage(file?: File) {
     if (!file) return;
-    setError(''); setEncoding(true); setMultiPlan(null); setMultiQr(''); setMultiIndex(1);
+    setError(''); setEncoding(true); setMultiPlaying(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1);
     try {
       if (multiMode) {
         const encoded = await encodeImageForMultiQr(file);
@@ -79,7 +94,7 @@ export function GeneratorForm() {
     } finally { setEncoding(false); }
   }
   function reset() {
-    setImageMode(false); setMultiMode(false); setImageName(''); setImagePreview(''); setImageInfo(''); setError(''); setMultiPlan(null); setMultiQr(''); setMultiIndex(1);
+    setImageMode(false); setMultiMode(false); setImageName(''); setImagePreview(''); setImageInfo(''); setError(''); setMultiPlaying(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1);
     setSettings(prev => ({ ...prev, value: '' }));
   }
 
@@ -90,7 +105,7 @@ export function GeneratorForm() {
     </div>
 
     <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1">
-      <button type="button" onClick={() => { setImageMode(false); setMultiMode(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1); }} className={`rounded-xl px-4 py-3 text-sm font-bold ${!imageMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}><Link2 size={15} className="mr-2 inline" />Text / Link</button>
+      <button type="button" onClick={() => { setImageMode(false); setMultiMode(false); setMultiPlaying(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1); }} className={`rounded-xl px-4 py-3 text-sm font-bold ${!imageMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}><Link2 size={15} className="mr-2 inline" />Text / Link</button>
       <button type="button" onClick={() => { setMultiMode(false); inputRef.current?.click(); }} disabled={encoding} className={`rounded-xl px-3 py-3 text-xs font-bold ${imageMode && !multiMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}>{encoding ? <Loader2 size={15} className="mr-1 inline animate-spin" /> : <ImagePlus size={15} className="mr-1 inline" />}Photo → QR</button>
       <button type="button" onClick={() => { setMultiMode(true); inputRef.current?.click(); }} disabled={encoding} className={`rounded-xl px-3 py-3 text-xs font-bold ${multiMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}><Layers3 size={15} className="mr-1 inline" />Multi-QR</button>
     </div>
@@ -121,21 +136,23 @@ export function GeneratorForm() {
             </button>
           </div>
           {multiQr && <img src={multiQr} alt={`Multi-QR frame ${multiIndex} of ${multiPlan.total}`} className="mx-auto mt-4 max-h-[520px] w-full max-w-[720px] rounded-xl object-contain bg-white p-3" />}
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <button type="button" disabled={multiIndex <= 1} onClick={async () => {
-              const next = Math.max(1, multiIndex - 1);
-              const chunk = await multiPlan.getChunk(next);
-              setMultiIndex(next);
-              setSettings(prev => ({ ...prev, value: chunk, errorCorrectionLevel: 'L' }));
-            }} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold disabled:opacity-40">Previous</button>
-            <button type="button" disabled={multiIndex >= multiPlan.total} onClick={async () => {
-              const next = Math.min(multiPlan.total, multiIndex + 1);
-              const chunk = await multiPlan.getChunk(next);
-              setMultiIndex(next);
-              setSettings(prev => ({ ...prev, value: chunk, errorCorrectionLevel: 'L' }));
-            }} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold disabled:opacity-40">Next</button>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <button type="button" disabled={multiIndex <= 1} onClick={() => { setMultiPlaying(false); setMultiIndex(current => Math.max(1, current - 1)); }} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold disabled:opacity-40">Previous</button>
+            <button type="button" disabled={multiPlan.total < 2} onClick={() => setMultiPlaying(current => !current)} className="inline-flex items-center gap-1 rounded-full bg-cyan-300 px-4 py-2 text-xs font-black text-slate-950">
+              {multiPlaying ? <Pause size={13}/> : <Play size={13}/>} {multiPlaying ? 'Pause stream' : 'Play stream'}
+            </button>
+            <button type="button" disabled={multiIndex >= multiPlan.total} onClick={() => { setMultiPlaying(false); setMultiIndex(current => Math.min(multiPlan.total, current + 1)); }} className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold disabled:opacity-40">Next</button>
+            <label className="inline-flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+              <span>Interval</span>
+              <select value={multiInterval} onChange={event => setMultiInterval(Number(event.target.value))} className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5">
+                <option value="700">700ms</option>
+                <option value="1000">1 sec</option>
+                <option value="1300">1.3 sec</option>
+                <option value="1600">1.6 sec</option>
+              </select>
+            </label>
           </div>
-          <p className="mt-3 text-center text-[11px] leading-5 text-[var(--text-muted)]">Frames are generated on demand, so large photos do not load thousands of QR images into memory at once.</p>
+          <p className="mt-3 text-center text-[11px] leading-5 text-[var(--text-muted)]">Frames are generated on demand and synced to the main QR preview. For camera scanning, 1–1.3 seconds gives the receiver more time to lock onto each frame.</p>
         </div>
       )}
 
