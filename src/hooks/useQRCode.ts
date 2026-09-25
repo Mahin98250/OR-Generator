@@ -33,7 +33,10 @@ export function useQRCode(initial?: Partial<QRSettings>) {
         const next = await toQrDataUrl(settings);
         if (!cancelled) setDataUrl(next);
       } catch {
-        if (!cancelled) setError('Unable to generate QR code right now.');
+        if (!cancelled) {
+          setDataUrl('');
+          setError('Unable to generate QR code right now.');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
