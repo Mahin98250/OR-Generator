@@ -1,6 +1,6 @@
 import { analyzeScan } from './scan';
 import { QrEncodePool } from './qrEncodePool';
-import { optiFrameSelfTest } from './optiframe';
+import { decodeOptiFramePerspective, optiFrameSelfTest } from './optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from './optiframeStream';
 import { cropOptiLaneGrid, createOptiLaneSurface, getOptiLaneLayout, type OptiLaneCount } from './optiframeLanes';
 import { OptiFrameDecodePool } from './optiframeDecodePool';
@@ -426,11 +426,11 @@ async function optiFrameMultiLaneRoundTrip() {
     const image = ctx.getImageData(0, 0, surface.canvas.width, surface.canvas.height);
     const lanes = cropOptiLaneGrid(image, laneCount);
     assert(lanes.length === laneCount, 'Expected ' + laneCount + ' cropped lanes, got ' + lanes.length + '.');
+    assert(lanes.every(lane => lane.image.width === 384 && lane.image.height === 384), 'Multi-lane crop did not preserve the 384×384 physical lane raster.');
 
     for (let lane = 0; lane < laneCount; lane += 1) {
-      const { decodeOptiFrame } = await import('./optiframe');
-      const decoded = decodeOptiFrame(lanes[lane].image);
-      assert(decoded, 'Lane ' + lane + ' failed axis-aligned decode in ' + laneCount + '× mode.');
+      const decoded = decodeOptiFramePerspective(lanes[lane].image)?.frame;
+      assert(decoded, 'Lane ' + lane + ' failed perspective decode in ' + laneCount + '× mode.');
       assert(decoded.sequence === (12 + lane) % 40, 'Lane ' + lane + ' sequence mismatch in ' + laneCount + '× mode.');
       expectEqualBytes(decoded.payload, selected[lane], 'Lane ' + lane + ' payload');
     }
