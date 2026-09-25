@@ -55,7 +55,7 @@ export function Transfer() {
     const jobs=Array.from({length:grid},async(_,lane)=>{
       if(fountain) return fountain.getDroplet(lane);
       const index=current*grid+lane+1;
-      if(index>compat!.total) return null;
+      if(!compat || index>compat.total) return null;
       return compat.getFrame(index);
     });
     void Promise.all(jobs).then(async frames=>{
@@ -115,7 +115,7 @@ export function Transfer() {
       if(d.complete){
         const rebuilt=await fountainDecoderRef.current.reconstruct();
         if(rebuilt){
-          const url=URL.createObjectURL(new Blob([rebuilt.bytes],{type:frame.mime}));
+          const url=URL.createObjectURL(new Blob([rebuilt.bytes.buffer as ArrayBuffer],{type:frame.mime}));
           setResult({url,name:frame.name,size:frame.size}); setProgress(null); stopReceive();
         }
       }
