@@ -290,42 +290,105 @@ function finderScore(image: ImageData, cx: number, cy: number, moduleScale: numb
   return 1 - error / weight;
 }
 
+
+const QUICK_FINDER_POINTS = [
+  [0, 0], [0, 4], [0, 8],
+  [2, 2], [2, 4], [2, 6],
+  [4, 0], [4, 2], [4, 4], [4, 6], [4, 8],
+  [6, 2], [6, 4], [6, 6],
+  [8, 0], [8, 4], [8, 8],
+] as const;
+
+function finderQuickScore(image: ImageData, cx: number, cy: number, moduleScale: number, angle = 0) {
+  const radians = angle * Math.PI / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  let min = 255;
+  let max = 0;
+  const samples: Array<{ value: number; expected: number; weight: number }> = [];
+
+  for (const [r, col] of QUICK_FINDER_POINTS) {
+    const dx = (col - 4) * moduleScale;
+    const dy = (r - 4) * moduleScale;
+    const x = cx + dx * cos - dy * sin;
+    const y = cy + dx * sin + dy * cos;
+    const value = bilinear(image, x, y);
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+    samples.push({
+      value,
+      expected: finderBit(r, col),
+      weight: finderBit(r, col) ? 1.1 : 1.5,
+    });
+  }
+
+  if (max - min < 45) return -1;
+  let error = 0;
+  let weight = 0;
+  for (const sample of samples) {
+    const normalized = (sample.value - min) / (max - min);
+    error += Math.abs(normalized - sample.expected) * sample.weight;
+    weight += sample.weight;
+  }
+  return 1 - error / weight;
+}
+
 type Corner = 'tl' | 'tr' | 'bl' | 'br';
 
 function searchFinder(image: ImageData, corner: Corner) {
   const width = image.width;
   const height = image.height;
   const minDim = Math.min(width, height);
-  const step = Math.max(5, Math.round(minDim / 105));
+  const step = Math.max(6, Math.round(minDim / 95));
   const expectedScale = minDim / OPTIFRAME_SIZE;
-  const minScale = Math.max(1.25, expectedScale * 0.42);
-  const maxScale = Math.min(18, Math.max(minScale + 2, expectedScale * 2.25));
-  const scaleStep = 1;
+  const minScale = Math.max(1.25, expectedScale * 0.5);
+  const maxScale = Math.min(18, Math.max(minScale + 1, expectedScale * 1.8));
+  const scaleStep = Math.max(1, expectedScale * 0.16);
 
-  const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.62);
-  const xEnd = corner.includes('l') ? Math.floor(width * 0.38) : width;
-  const yStart = corner.includes('t') ? 0 : Math.floor(height * 0.62);
-  const yEnd = corner.includes('t') ? Math.floor(height * 0.38) : height;
+  const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.58);
+  const xEnd = corner.includes('l') ? Math.floor(width * 0.42) : width;
+  const yStart = corner.includes('t') ? 0 : Math.floor(height * 0.58);
+  const yEnd = corner.includes('t') ? Math.floor(height * 0.42) : height;
 
   const scan = (angles: readonly number[]) => {
-    let best: OptiFrameAnchor | null = null;
+    const candidates: Array<{ x: number; y: number; score: number; scale: number; angle: number }> = [];
+    const retain = (candidate: { x: number; y: number; score: number; scale: number; angle: number }) => {
+      candidates.push(candidate);
+      candidates.sort((a, b) => b.score - a.score);
+      if (candidates.length > 6) candidates.pop();
+    };
+
     for (const angle of angles) {
       for (let scale = minScale; scale <= maxScale; scale += scaleStep) {
         for (let y = yStart + 4; y < yEnd - 4; y += step) {
           for (let x = xStart + 4; x < xEnd - 4; x += step) {
-            const score = finderScore(image, x, y, scale, angle);
-            if (score > (best?.score ?? 0)) best = { x, y, score, scale, angle };
+            const score = finderQuickScore(image, x, y, scale, angle);
+            if (score > 0.48) retain({ x, y, score, scale, angle });
           }
         }
+      }
+    }
+
+    let best: OptiFrameAnchor | null = null;
+    for (const candidate of candidates) {
+      const score = finderScore(image, candidate.x, candidate.y, candidate.scale, candidate.angle);
+      if (score > (best?.score ?? 0)) {
+        best = {
+          x: candidate.x,
+          y: candidate.y,
+          score,
+          scale: candidate.scale,
+          angle: candidate.angle,
+        };
       }
     }
     return best;
   };
 
-  // Most captures are close to upright. Start cheaply at 0° and only pay for
-  // rotational hypotheses when the upright search is not convincing.
+  // Most captures are close to upright. Only test rotation hypotheses when
+  // the cheap upright acquisition does not produce a convincing template.
   let best = scan([0]);
-  if (!best || best.score < 0.84) {
+  if (!best || best.score < 0.82) {
     const rotated = scan([-20, -10, 10, 20]);
     if (rotated && rotated.score > (best?.score ?? 0)) best = rotated;
   }
@@ -338,8 +401,8 @@ function searchFinder(image: ImageData, corner: Corner) {
   const maxX = Math.min(xEnd - 3, best.x + step * 2);
   const minY = Math.max(yStart + 2, best.y - step * 2);
   const maxY = Math.min(yEnd - 3, best.y + step * 2);
-  const minS = Math.max(minScale, best.scale - 1.5);
-  const maxS = Math.min(maxScale, best.scale + 1.5);
+  const minS = Math.max(minScale, best.scale - scaleStep * 2);
+  const maxS = Math.min(maxScale, best.scale + scaleStep * 2);
   const minA = Math.max(-30, best.angle - 5);
   const maxA = Math.min(30, best.angle + 5);
 
