@@ -425,8 +425,9 @@ async function optiFrameMultiLaneRoundTrip() {
     assert(ctx, 'Multi-lane fixture canvas context unavailable.');
     const image = ctx.getImageData(0, 0, surface.canvas.width, surface.canvas.height);
     const lanes = cropOptiLaneGrid(image, laneCount);
+    const expectedLaneSize = laneCount === 1 ? 768 : 384;
     assert(lanes.length === laneCount, 'Expected ' + laneCount + ' cropped lanes, got ' + lanes.length + '.');
-    assert(lanes.every(lane => lane.image.width === 384 && lane.image.height === 384), 'Multi-lane crop did not preserve the 384×384 physical lane raster.');
+    assert(lanes.every(lane => lane.image.width === expectedLaneSize && lane.image.height === expectedLaneSize), 'Multi-lane crop did not preserve the physical lane raster.');
 
     for (let lane = 0; lane < laneCount; lane += 1) {
       const decoded = decodeOptiFramePerspective(lanes[lane].image)?.frame;
@@ -436,7 +437,7 @@ async function optiFrameMultiLaneRoundTrip() {
     }
 
     const layout = getOptiLaneLayout(laneCount);
-    assert(surface.canvas.width === layout.columns * 384 && surface.canvas.height === layout.rows * 384, 'Lane surface dimensions mismatch.');
+    assert(surface.canvas.width === layout.columns * expectedLaneSize && surface.canvas.height === layout.rows * expectedLaneSize, 'Lane surface dimensions mismatch.');
   }
 
   return '1×, 2×, and 4× lane surfaces cropped and decoded byte-for-byte';
