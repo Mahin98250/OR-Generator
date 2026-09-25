@@ -156,8 +156,9 @@ export function encodeOptiFrame(payload: Uint8Array, sequence = 0, total = 1) {
 function toImageData(source: CanvasImageSource | ImageData) {
   if (source instanceof ImageData) return source;
 
-  const sourceWidth = source instanceof HTMLVideoElement ? source.videoWidth : ('width' in source ? source.width : source.displayWidth);
-  const sourceHeight = source instanceof HTMLVideoElement ? source.videoHeight : ('height' in source ? source.height : source.displayHeight);
+  const dimensions = source as unknown as { width?: number; height?: number; displayWidth?: number; displayHeight?: number };
+  const sourceWidth = source instanceof HTMLVideoElement ? source.videoWidth : (typeof dimensions.width === 'number' ? dimensions.width : dimensions.displayWidth ?? 0);
+  const sourceHeight = source instanceof HTMLVideoElement ? source.videoHeight : (typeof dimensions.height === 'number' ? dimensions.height : dimensions.displayHeight ?? 0);
   if (!sourceWidth || !sourceHeight) return null;
 
   const maxDimension = 720;
