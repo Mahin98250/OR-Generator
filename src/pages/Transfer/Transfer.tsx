@@ -222,7 +222,7 @@ export function Transfer() {
           </div>}
         </div>
       </div>
-    </div>
+    </div>}
     <div className="mt-5 grid gap-3 md:grid-cols-3">{[['01','Split','Original bytes are split into QR-safe frames.'],['02','Scan','The receiver collects frames automatically.'],['03','Verify','SHA-256 confirms the exact original file.']].map(([n,t,d])=><div key={n} className="glass-panel rounded-[24px] p-5"><span className="text-xs font-black text-cyan-300">{n}</span><h2 className="mt-2 font-bold">{t}</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{d}</p></div>)}</div>
   </section>;
 }
