@@ -260,16 +260,33 @@ export function QRScanner() {
     frameRef.current = requestAnimationFrame(scanFrame);
   }
 
-  function handleBatchDecoded(results: BarcodeResult[]) {
-    const seen = new Set<string>();
-    const batch: BatchResult[] = results
+  async function handleBatchDecoded(results: BarcodeResult[]) {
+    const values = results
       .filter((item) => item.rawValue)
-      .map((item) => {
-        const value = item.rawValue!.trim();
-        const displayFormat = normalizeFormat(item.format);
-        return { value, format: displayFormat, analysis: analyzeScan(value, displayFormat) };
-      })
-      .filter((item) => {
+      .map((item) => ({ value: item.rawValue!.trim(), format: normalizeFormat(item.format) }))
+      .filter((item, index, arr) => arr.findIndex(other => other.value === item.value) === index);
+
+    const multiValues = values.filter(item => isMultiImageQr(item.value));
+    if (multiValues.length) {
+      for (const item of multiValues) await handleDecoded(item.value, item.format);
+      const normalValues = values.filter(item => !isMultiImageQr(item.value));
+      if (!normalValues.length) return;
+      // If an image contains both transfer frames and ordinary codes, keep the
+      // ordinary codes available as a secondary batch result.
+      const batch = normalValues.map(item => ({
+        value: item.value,
+        format: item.format,
+        analysis: analyzeScan(item.value, item.format),
+      }));
+      setBatchResults(batch);
+      batch.forEach(item => saveHistoryItem(item.value, { format: item.format, kind: item.analysis.kind, title: item.analysis.title }));
+      return;
+    }
+
+    const seen = new Set<string>();
+    const batch: BatchResult[] = values
+      .map(item => ({ value: item.value, format: item.format, analysis: analyzeScan(item.value, item.format) }))
+      .filter(item => {
         if (seen.has(item.value)) return false;
         seen.add(item.value);
         return true;
