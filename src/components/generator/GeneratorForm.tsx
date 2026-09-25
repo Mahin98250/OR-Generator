@@ -33,10 +33,27 @@ export function GeneratorForm() {
         setImagePreview(''); setImageInfo(`Original file preserved · ${(encoded.size / 1024 / 1024).toFixed(2)} MB · ${encoded.total} QR frames`);
         setSettings(prev => ({ ...prev, value: encoded.chunks[0], errorCorrectionLevel: 'L' }));
       } else {
-        const encoded = await encodeImageForQr(file);
-        setImageMode(true); setImageName(file.name); setImagePreview(encoded.previewUrl);
-        setImageInfo(`${encoded.width}×${encoded.height} · ${encoded.preservedDimensions ? 'original pixel dimensions preserved' : 'highest resolution that fits one QR'}`);
-        setSettings(prev => ({ ...prev, value: encoded.payload, errorCorrectionLevel: 'L' }));
+        try {
+          const encoded = await encodeImageForQr(file);
+          setImageMode(true); setImageName(file.name); setImagePreview(encoded.previewUrl);
+          setImageInfo(`${encoded.width}×${encoded.height} · ${encoded.preservedDimensions ? 'original pixel dimensions preserved' : 'highest resolution that fits one QR'}`);
+          setSettings(prev => ({ ...prev, value: encoded.payload, errorCorrectionLevel: 'L' }));
+        } catch (singleError) {
+          // Camera photos are usually too large for one QR. Automatically fall back
+          // to lossless Multi-QR instead of leaving the previous QR visible.
+          if (singleError instanceof Error && singleError.message.includes('Multi-QR Photo')) {
+            const encoded = await encodeImageForMultiQr(file);
+            const urls: string[] = [];
+            for (const chunk of encoded.chunks) {
+              urls.push(await QRCode.toDataURL(chunk, { width: settings.size, margin: settings.margin, errorCorrectionLevel: 'L' }));
+            }
+            setImageMode(true); setMultiMode(true); setImageName(file.name); setMultiCodes(urls); setMultiIndex(0);
+            setImagePreview(''); setImageInfo(`Original file preserved · ${(encoded.size / 1024 / 1024).toFixed(2)} MB · ${encoded.total} QR frames`);
+            setSettings(prev => ({ ...prev, value: encoded.chunks[0], errorCorrectionLevel: 'L' }));
+          } else {
+            throw singleError;
+          }
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to prepare this image.');
@@ -50,7 +67,7 @@ export function GeneratorForm() {
   return <div className="space-y-6">
     <div className="flex items-start gap-4">
       <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-cyan-300/20 to-indigo-500/25 text-cyan-200">{imageMode ? <ImagePlus size={19}/> : <Link2 size={19}/>}</div>
-      <div><h2 className="text-xl font-bold text-[var(--text)]">What should this QR contain?</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">Create a QR from text, links, or a compact photo that another OR-Generator scan can reconstruct.</p></div>
+      <div><h2 className="text-xl font-bold text-[var(--text)]">What should this QR contain?</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">Create a QR from text, links, or a photo. Large photos automatically switch to lossless Multi-QR mode.</p></div>
     </div>
 
     <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1">
