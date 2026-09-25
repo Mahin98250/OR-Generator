@@ -46,6 +46,7 @@ export function Transfer() {
     return()=>{cancelled=true;};
   },[plan,index]);
   useEffect(()=>()=>{ stopReceive(); stopPlayback(); },[]);
+  useEffect(()=>()=>{ if(result?.url) URL.revokeObjectURL(result.url); },[result]);
   useEffect(()=>{ const onFullscreen=()=>setFullscreen(document.fullscreenElement===playerRef.current); document.addEventListener('fullscreenchange',onFullscreen); return()=>document.removeEventListener('fullscreenchange',onFullscreen); },[]);
   useEffect(()=>{
     if(!playing || !plan || plan.total < 2) return;
