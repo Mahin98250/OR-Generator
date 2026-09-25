@@ -529,7 +529,7 @@ export function QRScanner() {
             </span>
           </div>
 
-          <div className="relative aspect-[4/3] min-h-[300px] sm:min-h-[420px]">
+          <div className="relative min-h-[min(76vh,760px)] h-[min(76vh,760px)] sm:min-h-[560px] sm:h-[min(78vh,820px)]">
             <video ref={videoRef} className="h-full w-full bg-black object-cover" muted playsInline />
             {!scanning && (
               <div className="absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_center,rgba(99,229,255,.12),transparent_42%)]">
@@ -538,13 +538,13 @@ export function QRScanner() {
                     <ScanLine size={30} />
                   </span>
                   <p className="mt-4 text-sm font-semibold text-white">Scan a QR code or barcode</p>
-                  <p className="mt-1 text-xs text-white/50">Detection happens locally on your device.</p>
+                  <p className="mt-1 text-xs text-white/50">Move the code inside the large guide and keep it sharp.</p>
                 </div>
               </div>
             )}
             {scanning && (
               <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                <div className={`relative ${mode === 'barcode' ? 'h-[34%] w-[78%]' : 'h-[62%] w-[62%] max-w-[320px]'} rounded-[28px] border-2 border-white/70 shadow-[0_0_0_999px_rgba(0,0,0,.25)]`}>
+                <div className={`relative ${mode === 'barcode' ? 'h-[34%] w-[88%] max-w-[760px]' : 'h-[78%] w-[78%] max-w-[560px]'} rounded-[28px] border-2 border-white/70 shadow-[0_0_0_999px_rgba(0,0,0,.25)]`}>
                   <span className="absolute -left-1 -top-1 h-8 w-8 rounded-tl-xl border-l-4 border-t-4 border-cyan-300" />
                   <span className="absolute -right-1 -top-1 h-8 w-8 rounded-tr-xl border-r-4 border-t-4 border-cyan-300" />
                   <span className="absolute -bottom-1 -left-1 h-8 w-8 rounded-bl-xl border-b-4 border-l-4 border-cyan-300" />
