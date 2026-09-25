@@ -6,9 +6,8 @@ import {
   Copy,
   Database,
   Download,
-  FileKey2,
   FlaskConical,
-  Grid2X2Plus,
+  QrCode,
   Heart,
   History as HistoryIcon,
   Layers3,
@@ -68,7 +67,7 @@ function detect(input: string): Detected {
 }
 
 const tools = [
-  { to: '/generator', icon: Grid2X2Plus, eyebrow: 'Create', title: 'QR Code Generator', text: 'Create QR codes from text and links, tune size/ECC, and export PNG, SVG or JPEG.', badge: 'Core' },
+  { to: '/generator', icon: QrCode, eyebrow: 'Create', title: 'QR Code Generator', text: 'Create QR codes from text and links, tune size/ECC, and export PNG, SVG or JPEG.', badge: 'Core' },
   { to: '/generator', icon: Layers3, eyebrow: 'Create', title: 'Photo → QR + Multi-QR', text: 'Encode a photo into one QR when it fits or split the original bytes across lossless Multi-QR frames.', badge: 'Advanced' },
   { to: '/scanner', icon: ScanLine, eyebrow: 'Scan', title: 'QR + Barcode Scanner', text: 'Use the camera or images for QR, EAN, UPC, Code 128/39, Data Matrix, PDF417 and more.', badge: 'Core' },
   { to: '/transfer', icon: Zap, eyebrow: 'Transfer', title: 'Optical File Transfer', text: 'Send files screen-to-camera with four QR lanes, fountain recovery and an on-device benchmark.', badge: 'OR Transfer 2.0' },
@@ -129,7 +128,7 @@ export function Tools() {
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <Link to="/generator" className="group rounded-[22px] border border-cyan-300/20 bg-cyan-300/10 p-4 transition hover:-translate-y-0.5 hover:bg-cyan-300/15">
-              <Grid2X2Plus className="text-cyan-300" size={20} />
+              <QrCode className="text-cyan-300" size={20} />
               <p className="mt-3 font-bold text-[var(--text)]">Create</p>
               <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">QR, photo QR and Multi-QR</p>
             </Link>
@@ -288,7 +287,7 @@ export function Tools() {
           <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">Theme, backup, restore and privacy controls.</p>
         </Link>
         <Link to="/transfer" className="glass-soft rounded-[24px] p-5 hover:bg-white/10">
-          <FileKey2 size={18} className="text-violet-300" />
+          <Zap size={18} className="text-violet-300" />
           <p className="mt-3 font-bold text-[var(--text)]">Optical transport</p>
           <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">High-speed screen-to-camera file movement.</p>
         </Link>
