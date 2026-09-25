@@ -32,6 +32,7 @@ export function Transfer() {
   const playTimerRef=useRef<number|null>(null);
   const playerRef=useRef<HTMLDivElement>(null);
   const [fullscreen,setFullscreen]=useState(false);
+  const recentFrameRef=useRef<Map<string,number>>(new Map());
 
   async function loadSavedSessions() {
     try {
@@ -73,12 +74,27 @@ export function Transfer() {
     return ()=>{ if(playTimerRef.current!==null) window.clearInterval(playTimerRef.current); playTimerRef.current=null; };
   },[playing,plan,intervalMs]);
 
+  function shouldProcessFrame(value:string) {
+    const now=performance.now();
+    const previous=recentFrameRef.current.get(value);
+    if(previous!==undefined && now-previous<600) return false;
+    recentFrameRef.current.set(value,now);
+
+    if(recentFrameRef.current.size>300){
+      for(const [key,timestamp] of recentFrameRef.current){
+        if(now-timestamp>5000) recentFrameRef.current.delete(key);
+      }
+    }
+    return true;
+  }
+
   async function scanLoop() {
     if(!receivingRef.current||!videoRef.current||!detectorRef.current)return;
     try {
       const found=await detectorRef.current.detect(videoRef.current);
       for(const item of found) {
         const value=item.rawValue||''; if(!isTransferFrame(value))continue;
+        if(!shouldProcessFrame(value))continue;
         const frame=parseTransferFrame(value); if(!frame)continue;
         const added=await addTransferFrame(frame);
         setProgress(prev => ({
@@ -124,7 +140,7 @@ export function Transfer() {
         zxingRef.current=reader;
         const controls=await reader.decodeFromVideoDevice(undefined, videoRef.current ?? undefined, async (result) => {
           const value=result?.getText?.() || '';
-          if(!value || !isTransferFrame(value)) return;
+          if(!value || !isTransferFrame(value) || !shouldProcessFrame(value)) return;
           const frame=parseTransferFrame(value); if(!frame) return;
           try {
             const added=await addTransferFrame(frame);
