@@ -163,6 +163,7 @@ export function QRScanner() {
     try {
       const reader = new BrowserMultiFormatReader();
       zxingRef.current = reader;
+      let stopAfterDecode = false;
 
       const controls = await reader.decodeFromVideoElement(video, (decoded, decodeError) => {
         if (decoded?.getText()) {
@@ -171,15 +172,17 @@ export function QRScanner() {
           if (!isFormatAllowed(detectedFormat)) return;
 
           void handleDecoded(value, detectedFormat);
-          if (!isMultiImageQr(value)) {
-            zxingControlsRef.current?.stop();
-          }
+          if (!isMultiImageQr(value)) stopAfterDecode = true;
           return;
         }
         void decodeError;
       });
 
       zxingControlsRef.current = controls;
+      if (stopAfterDecode) {
+        controls.stop();
+        zxingControlsRef.current = null;
+      }
       setEngine('ZXing fallback · multi-format');
     } catch {
       setEngine('QR fallback');
