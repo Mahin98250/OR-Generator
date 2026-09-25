@@ -302,10 +302,10 @@ function searchFinder(image: ImageData, corner: Corner) {
   const maxScale = Math.min(18, Math.max(minScale + 2, expectedScale * 2.25));
   const scaleStep = 1;
 
-  const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.43);
-  const xEnd = corner.includes('l') ? Math.floor(width * 0.60) : width;
-  const yStart = corner.includes('t') ? 0 : Math.floor(height * 0.43);
-  const yEnd = corner.includes('t') ? Math.floor(height * 0.60) : height;
+  const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.62);
+  const xEnd = corner.includes('l') ? Math.floor(width * 0.38) : width;
+  const yStart = corner.includes('t') ? 0 : Math.floor(height * 0.62);
+  const yEnd = corner.includes('t') ? Math.floor(height * 0.38) : height;
 
   const scan = (angles: readonly number[]) => {
     let best: OptiFrameAnchor | null = null;
@@ -326,7 +326,7 @@ function searchFinder(image: ImageData, corner: Corner) {
   // rotational hypotheses when the upright search is not convincing.
   let best = scan([0]);
   if (!best || best.score < 0.84) {
-    const rotated = scan([-24, -16, -8, 8, 16, 24]);
+    const rotated = scan([-20, -10, 10, 20]);
     if (rotated && rotated.score > (best?.score ?? 0)) best = rotated;
   }
 
