@@ -1,5 +1,5 @@
 import { analyzeScan } from './scan';
-import { createFountainDecoder, createFountainTransfer, parseFountainFrame } from './fountain';
+import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
   addMultiImageChunk,
   clearMultiImage,
@@ -205,7 +205,7 @@ async function fountainRoundTrip() {
   const plan = await createFountainTransfer(file);
   assert(plan.blocks >= 10, 'Fountain fixture did not create enough source blocks.');
 
-  const rawFrames: Array<ReturnType<typeof parseFountainFrame>> = [];
+  const rawFrames: FountainDroplet[] = [];
   const frameCount = plan.blocks * 3;
   for (let i = 0; i < frameCount; i += 1) {
     const raw = await plan.getDroplet(i % 4, i);
