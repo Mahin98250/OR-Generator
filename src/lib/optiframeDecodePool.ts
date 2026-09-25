@@ -136,29 +136,30 @@ export class OptiFrameDecodePool {
     if (jobs.length === 0) return [];
 
     const results: Array<OptiFrameWorkerResult | null> = Array(jobs.length).fill(null);
-    let nextIndex = 0;
-    const workerCount = Math.max(1, this.capacity);
+    const queue = jobs.map((job, index) => ({ ...job, index }));
+    const runnerCount = Math.max(1, Math.min(this.capacity, jobs.length));
 
     const run = async () => {
-      while (nextIndex < jobs.length) {
-        const index = nextIndex++;
-        const job = this.decode(jobs[index].buffer, jobs[index].width, jobs[index].height);
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (!item) return;
+
+        const job = this.decode(item.buffer, item.width, item.height);
         if (!job) {
-          // A worker may be temporarily saturated. Yield and retry rather
-          // than silently falling back to the main thread for queued lanes.
-          await new Promise<void>(resolve => window.setTimeout(resolve, 0));
-          nextIndex = Math.min(nextIndex, index);
+          queue.unshift(item);
+          await new Promise<void>(resolve => globalThis.setTimeout(resolve, 0));
           continue;
         }
+
         try {
-          results[index] = await job;
+          results[item.index] = await job;
         } catch {
-          results[index] = null;
+          results[item.index] = null;
         }
       }
     };
 
-    await Promise.all(Array.from({ length: Math.min(workerCount, jobs.length) }, run));
+    await Promise.all(Array.from({ length: runnerCount }, run));
     return results;
   }
 
