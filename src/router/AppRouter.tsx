@@ -6,6 +6,7 @@ import { Settings } from '../pages/Settings/Settings';
 import { Generator } from '../pages/Generator/Generator';
 import { Statistics } from '../pages/Statistics/Statistics';
 import { Tools } from '../pages/Tools/Tools';
+import { Transfer } from '../pages/Transfer/Transfer';
 
 export function AppRouter() {
   return (
@@ -16,6 +17,7 @@ export function AppRouter() {
       <Route path="/history" element={<History />} />
       <Route path="/statistics" element={<Statistics />} />
       <Route path="/tools" element={<Tools />} />
+      <Route path="/transfer" element={<Transfer />} />
       <Route path="/settings" element={<Settings />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
