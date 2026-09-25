@@ -5,6 +5,7 @@ import { GlassButton } from '../../components/ui/GlassButton';
 import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, OPTIFRAME_SIZE, type OptiFramePerspectiveDiagnostics } from '../../lib/optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from '../../lib/optiframeStream';
 import { OptiFrameDecodePool } from '../../lib/optiframeDecodePool';
+import { createOptiLaneSurface, cropOptiLaneGrid, type OptiLaneCount } from '../../lib/optiframeLanes';
 
 type CameraStats = {
   attempts: number;
@@ -35,6 +36,7 @@ export function OptiFrameLab() {
   const [cameraStats, setCameraStats] = useState<CameraStats>({ attempts: 0, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, lastMs: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, startedAt: null });
   const [streamPlaying, setStreamPlaying] = useState(false);
   const [streamIndex, setStreamIndex] = useState(0);
+  const [laneCount, setLaneCount] = useState<OptiLaneCount>(1);
 
   const capacity = useMemo(() => getOptiFrameCapacity(), []);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -62,13 +64,17 @@ export function OptiFrameLab() {
   }, []);
 
   useEffect(() => {
-    setStreamIndex(index => index % Math.max(1, streamPayload.length));
-  }, [streamPayload.length]);
+    setStreamIndex(index => {
+      const length = Math.max(1, streamPayload.length);
+      const group = Math.floor(index / laneCount);
+      return (group * laneCount) % length;
+    });
+  }, [streamPayload.length, laneCount]);
 
   useEffect(() => {
     if (!streamPlaying) return;
     senderTimerRef.current = window.setInterval(() => {
-      setStreamIndex(index => (index + 1) % Math.max(1, streamPayload.length));
+      setStreamIndex(index => (index + laneCount) % Math.max(1, streamPayload.length));
     }, 300);
     return () => {
       if (senderTimerRef.current !== null) window.clearInterval(senderTimerRef.current);
@@ -78,12 +84,14 @@ export function OptiFrameLab() {
 
   const streamFrame = useMemo(() => {
     try {
-      const payload = streamPayload[streamIndex] ?? new Uint8Array();
-      return encodeOptiFrame(payload, streamIndex, Math.max(1, streamPayload.length)).canvas.toDataURL('image/png');
+      const payloads = Array.from({ length: laneCount }, (_, lane) =>
+        streamPayload[(streamIndex + lane) % Math.max(1, streamPayload.length)] ?? new Uint8Array(),
+      );
+      return createOptiLaneSurface(payloads, streamIndex, Math.max(1, streamPayload.length), laneCount).canvas.toDataURL('image/png');
     } catch {
       return '';
     }
-  }, [streamPayload, streamIndex]);
+  }, [streamPayload, streamIndex, laneCount]);
 
   function generate() {
     try {
@@ -217,6 +225,89 @@ export function OptiFrameLab() {
     let usedTrackedCrop = false;
     let usedFullScan = false;
     let dropped = false;
+
+    if (laneCount > 1) {
+      const lanes = cropOptiLaneGrid(image, laneCount);
+      const laneResults = await Promise.all(lanes.map(async lane => {
+        const worker = await runWorker(lane.image);
+        const result = worker.result
+          ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics }
+          : runLocal(lane.image);
+        return { lane, result, worker: worker.result, dropped: worker.dropped };
+      }));
+      const successes = laneResults.filter(entry => entry.result);
+      const elapsed = performance.now() - captureStarted;
+      const droppedLanes = laneResults.filter(entry => entry.dropped).length;
+
+      if (successes.length === 0) {
+        setCameraStats(prev => ({
+          ...prev,
+          attempts: prev.attempts + 1,
+          dropped: prev.dropped + droppedLanes,
+          lastMs: elapsed,
+        }));
+        return;
+      }
+
+      if (successes.some(entry => entry.result?.frame.sequence === 0) && receiver.complete) {
+        seenSequenceRef.current.clear();
+        assemblerRef.current.reset();
+      }
+
+      let assembly = {
+        total: receiver.total,
+        received: receiver.received,
+        bytes: receiver.bytes,
+        missing: receiver.missing,
+        complete: receiver.complete,
+        payload: undefined as Uint8Array | undefined,
+      };
+      let duplicateCount = 0;
+      let workerCount = 0;
+      let localCount = 0;
+
+      for (const entry of successes) {
+        const result = entry.result;
+        if (!result) continue;
+        if (entry.worker) workerCount += 1;
+        else localCount += 1;
+        if (seenSequenceRef.current.has(result.frame.sequence)) duplicateCount += 1;
+        assembly = assemblerRef.current.add(result.frame);
+        seenSequenceRef.current.add(result.frame.sequence);
+      }
+
+      const elapsedFromStart = cameraStats.startedAt ? Math.max(0.001, (performance.now() - cameraStats.startedAt) / 1000) : 0;
+      setCameraStats(prev => ({
+        ...prev,
+        attempts: prev.attempts + 1,
+        hits: prev.hits + successes.length,
+        duplicates: prev.duplicates + duplicateCount,
+        workerHits: prev.workerHits + workerCount,
+        localHits: prev.localHits + localCount,
+        dropped: prev.dropped + droppedLanes,
+        lastMs: elapsed,
+        captureFps: elapsedFromStart ? (prev.attempts + 1) / elapsedFromStart : 0,
+        decodeFps: elapsedFromStart ? (prev.hits + successes.length) / elapsedFromStart : 0,
+        bytes: assembly.bytes,
+        goodputBps: elapsedFromStart ? assembly.bytes / elapsedFromStart : 0,
+      }));
+
+      setReceiver({
+        total: assembly.total,
+        received: assembly.received,
+        bytes: assembly.bytes,
+        missing: assembly.missing.slice(0, 40),
+        complete: assembly.complete,
+      });
+
+      const lanesDecoded = successes.length;
+      setStatus(`Multi-lane ${lanesDecoded}/${laneCount} decoded · ${assembly.received}/${assembly.total || 0} frames · ${workerCount} worker / ${localCount} local · ${elapsed.toFixed(0)} ms capture-decode`);
+
+      if (assembly.complete && assembly.payload) {
+        setCameraDecoded(utf8ToText(assembly.payload));
+      }
+      return;
+    }
 
     const trackedCrop = cropTrackedRegion(image);
     const shouldFullScan = !trackedCrop || framesSinceFullScanRef.current >= reacquireEveryFrames;
@@ -399,18 +490,19 @@ export function OptiFrameLab() {
 
         <GlassCard>
           <div className="flex items-center justify-between gap-3">
-            <div><p className="text-sm font-bold text-[var(--text)]">Optical surface</p><p className="mt-1 text-[10px] uppercase tracking-[.14em] text-[var(--text-muted)]">{OPTIFRAME_SIZE}×{OPTIFRAME_SIZE} · 4 luminance levels</p></div>
+            <div><p className="text-sm font-bold text-[var(--text)]">Optical surface</p><p className="mt-1 text-[10px] uppercase tracking-[.14em] text-[var(--text-muted)]">{OPTIFRAME_SIZE}×{OPTIFRAME_SIZE} lanes · 4 luminance levels</p></div>
             <span className="rounded-full border border-[var(--border)] px-3 py-2 text-[10px] font-bold text-[var(--text-muted)]">{streamPayload.length} stream frame{streamPayload.length === 1 ? '' : 's'}</span>
           </div>
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><div><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">Parallel lanes</p><p className="mt-1 text-xs text-[var(--text-muted)]">Each lane carries an independent OptiFrame.</p></div><div className="flex rounded-full border border-[var(--border)] p-1">{([1, 2, 4] as OptiLaneCount[]).map(count => <button key={count} onClick={() => setLaneCount(count)} className={laneCount === count ? 'rounded-full bg-white px-3 py-1.5 text-[10px] font-black text-slate-950' : 'rounded-full px-3 py-1.5 text-[10px] font-black text-[var(--text-muted)]'}>{count}×</button>)}</div></div>
           <div className="mt-5 grid place-items-center rounded-[26px] bg-white p-4">
             {streamFrame ? <img src={streamFrame} alt="OptiFrame stream frame" className="block aspect-square w-full max-w-[560px] [image-rendering:pixelated]" /> : <div className="aspect-square w-full max-w-[560px]" />}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <GlassButton onClick={() => setStreamPlaying(value => !value)}>{streamPlaying ? <Pause size={14}/> : <Play size={14}/>} {streamPlaying ? 'Pause stream' : 'Play stream'}</GlassButton>
-            <button onClick={() => setStreamIndex(index => (index + streamPayload.length - 1) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Previous</button>
-            <button onClick={() => setStreamIndex(index => (index + 1) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Next</button>
+            <button onClick={() => setStreamIndex(index => (index + streamPayload.length - laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Previous</button>
+            <button onClick={() => setStreamIndex(index => (index + laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Next</button>
           </div>
-          <p className="mt-3 text-xs text-[var(--text-muted)]">Open this page on a second device and start Live camera receiver there. Put the sender surface in front of that camera to test real optical capture and reassembly.</p>
+          <p className="mt-3 text-xs text-[var(--text-muted)]">{laneCount > 1 ? `Multi-lane mode displays ${laneCount} independent frames at once; the receiver splits the camera image into the same grid and decodes lanes in parallel.` : 'Open this page on a second device and start Live camera receiver there. Put the sender surface in front of that camera to test real optical capture and reassembly.'}</p>
         </GlassCard>
       </div>
 
@@ -444,7 +536,7 @@ export function OptiFrameLab() {
           <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-[var(--text)]">Receiver state</p><p className="mt-1 text-xs text-[var(--text-muted)]">{receiver.total ? `${receiver.received}/${receiver.total} frames received` : 'Waiting for a frame.'}</p></div><button onClick={resetReceiver} className="rounded-full p-2 text-[var(--text-muted)] hover:bg-white/10" aria-label="Reset receiver"><RotateCcw size={16}/></button></div>
           {receiver.total > 0 && <><div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100, receiver.received / receiver.total * 100)}%`}}/></div><p className="mt-3 text-xs text-[var(--text-muted)]">{receiver.complete ? 'Complete payload reassembled in sequence order.' : `Missing: ${receiver.missing.slice(0, 18).join(', ')}${receiver.missing.length > 18 ? '…' : ''}`}</p></>}
           {cameraDecoded && <div className="mt-5 rounded-[22px] border border-emerald-300/20 bg-emerald-300/10 p-4"><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.14em] text-emerald-300"><CheckCircle2 size={14}/> Reassembled payload</p><p className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-[var(--text)]">{cameraDecoded}</p><button onClick={() => void navigator.clipboard?.writeText(cameraDecoded)} className="mt-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text)]"><Copy size={13}/> Copy payload</button></div>}
-          <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4"><p className="text-xs font-bold text-[var(--text)]">Lab status</p><p className="mt-1 text-xs leading-6 text-[var(--text-muted)]">This milestone adds tracked-region decoding: full-frame acquisition, tight crop tracking, periodic reacquisition, worker decoding, adaptive luminance calibration, homography correction, and sequence-aware reassembly. The production file-transfer path remains OptiTransfer 2.0 until this custom layer earns a physical benchmark.</p></div>
+          <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4"><p className="text-xs font-bold text-[var(--text)]">Lab status</p><p className="mt-1 text-xs leading-6 text-[var(--text-muted)]">Phase 4.3 adds 1×, 2×, and 4× parallel optical lanes with independent sequence numbers, concurrent worker dispatch, and per-lane CRC verification. Multi-lane receiver acquisition currently assumes the sender grid fills the camera view; tracked-region multi-lane acquisition is the next hardening step. No physical throughput claim is made until a repeatable device benchmark is captured.</p></div>
         </GlassCard>
       </div>
     </section>
