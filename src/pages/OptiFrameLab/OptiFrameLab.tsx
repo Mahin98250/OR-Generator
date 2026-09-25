@@ -212,7 +212,7 @@ export function OptiFrameLab() {
     };
 
     let workerResult: Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
-    let result: ReturnType<typeof decodeOptiFramePerspective> | Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
+    let result: ReturnType<typeof decodeOptiFramePerspective> = null;
     let cropOffset = { x: 0, y: 0 };
     let usedTrackedCrop = false;
     let usedFullScan = false;
@@ -225,7 +225,7 @@ export function OptiFrameLab() {
       const worker = await runWorker(trackedCrop.image);
       workerResult = worker.result;
       dropped = worker.dropped;
-      result = worker.result ?? runLocal(trackedCrop.image);
+      result = worker.result ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics } : runLocal(trackedCrop.image);
       cropOffset = { x: trackedCrop.offsetX, y: trackedCrop.offsetY };
     }
 
@@ -234,7 +234,7 @@ export function OptiFrameLab() {
       const worker = await runWorker(image);
       workerResult = worker.result;
       dropped = dropped || worker.dropped;
-      result = worker.result ?? runLocal(image);
+      result = worker.result ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics } : runLocal(image);
       cropOffset = { x: 0, y: 0 };
     }
 
