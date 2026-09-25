@@ -8,6 +8,7 @@ import { Statistics } from '../pages/Statistics/Statistics';
 import { Tools } from '../pages/Tools/Tools';
 import { Transfer } from '../pages/Transfer/Transfer';
 import { OptiFrameLab } from '../pages/OptiFrameLab/OptiFrameLab';
+import { Diagnostics } from '../pages/Diagnostics/Diagnostics';
 
 export function AppRouter() {
   return (
@@ -20,6 +21,7 @@ export function AppRouter() {
       <Route path="/tools" element={<Tools />} />
       <Route path="/transfer" element={<Transfer />} />
       <Route path="/optiframe" element={<OptiFrameLab />} />
+      <Route path="/diagnostics" element={<Diagnostics />} />
       <Route path="/settings" element={<Settings />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
