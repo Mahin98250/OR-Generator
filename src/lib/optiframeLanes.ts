@@ -27,11 +27,10 @@ export function createOptiLaneSurface(
   }
 
   const layout = getOptiLaneLayout(laneCount);
-  // Render the optical surface substantially larger than the protocol's
-  // minimum 128×128 decoder grid. The camera should receive large cells;
-  // CSS-only upscaling leaves too few physical display pixels for reliable
-  // mobile-camera acquisition.
-  const renderScale = 3;
+  // Match the physical raster to the available display area. A single lane
+  // can use a much larger 768 px surface, while 2×/4× grids target ~3 px per
+  // protocol module so the full grid still fits a typical 760 px viewport.
+  const renderScale = laneCount === 1 ? 6 : 3;
   const laneRenderSize = OPTIFRAME_SIZE * renderScale;
   const canvas = document.createElement('canvas');
   canvas.width = layout.columns * laneRenderSize;
