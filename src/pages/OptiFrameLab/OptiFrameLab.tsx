@@ -6,6 +6,7 @@ import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFr
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from '../../lib/optiframeStream';
 import { OptiFrameDecodePool } from '../../lib/optiframeDecodePool';
 import { createOptiLaneSurface, cropOptiLaneGrid, type OptiLaneCount } from '../../lib/optiframeLanes';
+import { createOptiCodeFileTransfer, decodeOptiCodeFileTransfer, type OptiCodeFileTransfer } from '../../lib/opticodeTransfer';
 
 type CameraStats = {
   attempts: number;
@@ -102,6 +103,10 @@ export function OptiFrameLab() {
   const [streamIndex, setStreamIndex] = useState(0);
   const [laneCount, setLaneCount] = useState<OptiLaneCount>(1);
   const [streamIntervalMs, setStreamIntervalMs] = useState(300);
+  const [transferFile, setTransferFile] = useState<File | null>(null);
+  const [transferData, setTransferData] = useState<Uint8Array | null>(null);
+  const [receivedFile, setReceivedFile] = useState<OptiCodeFileTransfer | null>(null);
+  const [receivedFileUrl, setReceivedFileUrl] = useState('');
 
   const capacity = useMemo(() => getOptiFrameCapacity(), []);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -120,16 +125,18 @@ export function OptiFrameLab() {
   const acquisitionTestRef = useRef(false);
   const acquisitionTestMetricsRef = useRef(emptyAcquisitionTest());
   const reacquireEveryFrames = 12;
+  const receivedFileUrlRef = useRef('');
 
   const streamPayload = useMemo(() => {
-    const payload = new TextEncoder().encode(text);
+    const payload = transferData ?? new TextEncoder().encode(text);
     return splitOptiFramePayload(payload, capacity);
-  }, [text, capacity]);
+  }, [text, transferData, capacity]);
 
   useEffect(() => {
     return () => {
       stopCamera();
       decodePoolRef.current.terminate();
+      if (receivedFileUrlRef.current) URL.revokeObjectURL(receivedFileUrlRef.current);
     };
   }, []);
 
@@ -257,6 +264,48 @@ export function OptiFrameLab() {
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraOn(false);
+  }
+
+  async function selectTransferFile(file?: File) {
+    if (!file) return;
+    try {
+      setStatus('Preparing ' + file.name + ' for optical transfer…');
+      const payload = await createOptiCodeFileTransfer(file);
+      setTransferFile(file);
+      setTransferData(payload);
+      setStreamIndex(0);
+      setStreamPlaying(false);
+      setStatus(file.name + ' ready · ' + file.size.toLocaleString() + ' bytes · ' + Math.max(1, Math.ceil(payload.length / capacity)) + ' optical frames.');
+    } catch (error) {
+      setTransferFile(null);
+      setTransferData(null);
+      setStatus(error instanceof Error ? error.message : 'Unable to prepare that file.');
+    }
+  }
+
+  function clearTransferFile() {
+    setTransferFile(null);
+    setTransferData(null);
+    setStreamPlaying(false);
+    setStreamIndex(0);
+    setStatus('File cleared. Text mode is active.');
+  }
+
+  function finishReceivedPayload(payload: Uint8Array) {
+    const fileTransfer = decodeOptiCodeFileTransfer(payload);
+    if (fileTransfer) {
+      if (receivedFileUrlRef.current) URL.revokeObjectURL(receivedFileUrlRef.current);
+      const url = URL.createObjectURL(new Blob([fileTransfer.data], { type: fileTransfer.type }));
+      receivedFileUrlRef.current = url;
+      setReceivedFile(fileTransfer);
+      setReceivedFileUrl(url);
+      setCameraDecoded('');
+      setStatus('Transfer complete · ' + fileTransfer.name + ' · ' + fileTransfer.size.toLocaleString() + ' bytes.');
+      return;
+    }
+    setReceivedFile(null);
+    setReceivedFileUrl('');
+    setCameraDecoded(utf8ToText(payload));
   }
 
   async function decodeCameraFrame() {
@@ -486,7 +535,7 @@ export function OptiFrameLab() {
       setStatus(`Multi-lane ${successes.length}/${laneCount} decoded · ${assembly.received}/${assembly.total || 0} frames · ${workerCount} worker / ${localCount} local · ${elapsed.toFixed(0)} ms capture-decode`);
 
       if (assembly.complete && assembly.payload) {
-        setCameraDecoded(utf8ToText(assembly.payload));
+        finishReceivedPayload(assembly.payload);
       }
       return;
     }
@@ -604,7 +653,7 @@ export function OptiFrameLab() {
     setStatus(`Live frame ${frame.sequence + 1}/${frame.total} · ${Math.round(result.diagnostics.confidence * 100)}% anchor confidence · ${result.diagnostics.decodeMs.toFixed(0)} ms decode${workerResult ? ` · worker ${workerResult.workerIndex + 1}` : ' · local'} · ${decodePoolRef.current.busyCount}/${decodePoolRef.current.capacity} workers busy`);
 
     if (assembly.complete && assembly.payload) {
-      setCameraDecoded(utf8ToText(assembly.payload));
+      finishReceivedPayload(assembly.payload);
     }
   }
 
@@ -734,6 +783,10 @@ export function OptiFrameLab() {
     framesSinceFullScanRef.current = 0;
     setReceiver({ total: 0, received: 0, bytes: 0, missing: [], complete: false });
     setCameraDecoded('');
+    setReceivedFile(null);
+    if (receivedFileUrlRef.current) URL.revokeObjectURL(receivedFileUrlRef.current);
+    receivedFileUrlRef.current = '';
+    setReceivedFileUrl('');
     setCameraStats(prev => ({ ...prev, hits: 0, duplicates: 0, dropped: 0, workerHits: 0, localHits: 0, bytes: 0, captureFps: 0, decodeFps: 0, goodputBps: 0, lastConfidence: 0 }));
   }
 
@@ -741,12 +794,39 @@ export function OptiFrameLab() {
     <section className="mx-auto max-w-7xl py-8 sm:py-12">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">Phase 4 · High-speed optical engine</p>
-          <h1 className="mt-2 text-4xl font-black text-[var(--text)] sm:text-6xl">OptiFrame Lab</h1>
-          <p className="mt-4 max-w-4xl text-sm leading-7 text-[var(--text-muted)]">Custom 128×128 protocol frames rendered at a larger physical raster, with four luminance levels, rotationally tolerant finder anchors, perspective correction, CRC-32, parallel lanes and multi-frame reassembly. This is a research layer, not a claim of benchmarked superiority over QR.</p>
+          <p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">OptiCode · Optical file transfer MVP</p>
+          <h1 className="mt-2 text-4xl font-black text-[var(--text)] sm:text-6xl">Send files through light.</h1>
+          <p className="mt-4 max-w-4xl text-sm leading-7 text-[var(--text-muted)]">Choose a photo or any file on one device, display the optical stream, and scan it from another device. The Lab controls remain below for protocol diagnostics and physical testing.</p>
         </div>
         <div className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs font-bold text-cyan-300">{capacity} payload bytes / frame</div>
       </div>
+
+      <GlassCard className="lg:col-span-2">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-cyan-400/10 text-cyan-300"><Zap size={18}/></span>
+              <div>
+                <p className="text-lg font-black text-[var(--text)]">File transfer</p>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">Device A sends · Device B scans with its camera · the original file is reconstructed automatically.</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full bg-white px-5 py-2 text-sm font-black text-slate-950">
+              <Upload size={15}/> {transferFile ? 'Choose another file' : 'Choose file'}
+              <input type="file" className="hidden" onChange={event => { void selectTransferFile(event.target.files?.[0]); event.currentTarget.value = ''; }}/>
+            </label>
+            {transferFile && <button onClick={clearTransferFile} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2 text-sm font-bold text-[var(--text)]">Clear</button>}
+          </div>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-4"><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">Mode</p><p className="mt-1 text-sm font-black text-[var(--text)]">{transferFile ? 'FILE' : 'TEXT'}</p></div>
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-4"><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">Payload</p><p className="mt-1 text-sm font-black text-[var(--text)]">{(transferData?.length ?? new TextEncoder().encode(text).length).toLocaleString()} bytes</p></div>
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-4"><p className="text-[10px] font-black uppercase tracking-[.14em] text-[var(--text-muted)]">Frames</p><p className="mt-1 text-sm font-black text-[var(--text)]">{streamPayload.length}</p></div>
+        </div>
+        {transferFile && <div className="mt-4 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4"><p className="text-xs font-black text-cyan-200">{transferFile.name}</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{transferFile.type || 'application/octet-stream'} · {transferFile.size.toLocaleString()} bytes · ready to display on the sending device.</p></div>}
+      </GlassCard>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <GlassCard>
@@ -799,7 +879,7 @@ export function OptiFrameLab() {
             <button onClick={() => setStreamIndex(index => (index + streamPayload.length - laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Previous</button>
             <button onClick={() => setStreamIndex(index => (index + laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Next</button>
           </div>
-          <p className="mt-3 text-xs text-[var(--text-muted)]">{laneCount > 1 ? `Multi-lane mode displays ${laneCount} independent frames at once; the receiver uses the matching ${laneCount === 2 ? '2:1' : '1:1'} grid aspect ratio and decodes lanes through the worker pool.` : 'For the first physical test, use 1× mode, fill the optical surface with the camera view, and keep all four finder anchors visible. Move closer only after the first frame is detected.'}</p>
+          <p className="mt-3 text-xs text-[var(--text-muted)]">{laneCount > 1 ? `Multi-lane mode displays ${laneCount} independent frames at once; the receiver uses the matching ${laneCount === 2 ? '2:1' : '1:1'} grid aspect ratio and decodes lanes through the worker pool.` : 'On the sending device, choose a file above, then press Play stream or Fullscreen 1×. On the receiving device, open the same page, press Start camera, and point it at this optical surface. Keep all four finder anchors visible.'}</p>
         </GlassCard>
       </div>
 
@@ -905,8 +985,8 @@ export function OptiFrameLab() {
         <GlassCard>
           <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-[var(--text)]">Receiver state</p><p className="mt-1 text-xs text-[var(--text-muted)]">{receiver.total ? `${receiver.received}/${receiver.total} frames received` : 'Waiting for a frame.'}</p></div><button onClick={resetReceiver} className="rounded-full p-2 text-[var(--text-muted)] hover:bg-white/10" aria-label="Reset receiver"><RotateCcw size={16}/></button></div>
           {receiver.total > 0 && <><div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100, receiver.received / receiver.total * 100)}%`}}/></div><p className="mt-3 text-xs text-[var(--text-muted)]">{receiver.complete ? 'Complete payload reassembled in sequence order.' : `Missing: ${receiver.missing.slice(0, 18).join(', ')}${receiver.missing.length > 18 ? '…' : ''}`}</p></>}
-          {cameraDecoded && <div className="mt-5 rounded-[22px] border border-emerald-300/20 bg-emerald-300/10 p-4"><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.14em] text-emerald-300"><CheckCircle2 size={14}/> Reassembled payload</p><p className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-[var(--text)]">{cameraDecoded}</p><button onClick={() => void navigator.clipboard?.writeText(cameraDecoded)} className="mt-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text)]"><Copy size={13}/> Copy payload</button></div>}
-          <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4"><p className="text-xs font-bold text-[var(--text)]">Lab status</p><p className="mt-1 text-xs leading-6 text-[var(--text-muted)]">Phase 4.3 adds 1×, 2×, and 4× parallel optical lanes with independent sequence numbers, concurrent worker dispatch, and per-lane CRC verification. Multi-lane receiver acquisition currently assumes the sender grid fills the camera view; tracked-region multi-lane acquisition is the next hardening step. No physical throughput claim is made until a repeatable device benchmark is captured.</p></div>
+          {receivedFile && receivedFileUrl ? <div className="mt-5 rounded-[22px] border border-emerald-300/20 bg-emerald-300/10 p-4"><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.14em] text-emerald-300"><CheckCircle2 size={14}/> File received</p><p className="mt-2 text-sm font-black text-[var(--text)]">{receivedFile.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{receivedFile.type} · {receivedFile.size.toLocaleString()} bytes</p><a href={receivedFileUrl} download={receivedFile.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-black text-slate-950"><Download size={13}/> Save received file</a></div> : cameraDecoded && <div className="mt-5 rounded-[22px] border border-emerald-300/20 bg-emerald-300/10 p-4"><p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.14em] text-emerald-300"><CheckCircle2 size={14}/> Reassembled text</p><p className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-[var(--text)]">{cameraDecoded}</p><button onClick={() => void navigator.clipboard?.writeText(cameraDecoded)} className="mt-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text)]"><Copy size={13}/> Copy text</button></div>}
+          <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4"><p className="text-xs font-bold text-[var(--text)]">Lab status</p><p className="mt-1 text-xs leading-6 text-[var(--text-muted)]">The real file-transfer path is now wired to the optical stream: files are wrapped with filename/type metadata, fragmented into OptiFrames, displayed continuously, camera-decoded, reassembled, and offered as the original downloadable file. Keep 1× mode for the first physical test. Advanced recovery and speed work comes after this MVP passes a real device-to-device transfer.</p></div>
         </GlassCard>
       </div>
     </section>
