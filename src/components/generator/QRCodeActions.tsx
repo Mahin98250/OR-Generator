@@ -98,7 +98,7 @@ export function QRCodeActions() {
   const disabled = !settings.value.trim();
 
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="generator-actions flex flex-wrap gap-3">
       <GlassButton type="button" disabled={disabled} onClick={() => void copyText()} className="gap-2 bg-white text-slate-950">
         <Copy size={14} /> Copy text
       </GlassButton>
