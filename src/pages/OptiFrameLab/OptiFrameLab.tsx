@@ -359,11 +359,26 @@ export function OptiFrameLab() {
       }
     };
 
-    // The live receiver intentionally requires the worker decoder in MVP mode.
-    // Running the perspective finder on the UI thread can make scrolling freeze
-    // on slower devices. If workers are unavailable, report the condition instead
-    // of falling back to an unbounded main-thread scan.
-    const runLocal = (_target: ImageData) => null;
+    const runLocal = (target: ImageData) => {
+      try {
+        return decodeOptiFramePerspective(target);
+      } catch {
+        return null;
+      }
+    };
+
+    const runWorkerWithBoundedFallback = async (target: ImageData) => {
+      const worker = await runWorker(target);
+      if (worker.result) return worker;
+      // Only spend one bounded main-thread attempt after a worker miss/failure.
+      // Normal successful frames remain worker-only, preserving the fast path.
+      const local = runLocal(target);
+      return {
+        result: local ? { frame: local.frame, diagnostics: local.diagnostics } : null,
+        dropped: worker.dropped,
+        failed: worker.failed,
+      };
+    };
 
     let workerResult: Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
     let result: ReturnType<typeof decodeOptiFramePerspective> = null;
@@ -473,23 +488,23 @@ export function OptiFrameLab() {
     const shouldFullScan = !trackedCrop || framesSinceFullScanRef.current >= reacquireEveryFrames;
     if (trackedCrop && !shouldFullScan) {
       usedTrackedCrop = true;
-      const worker = await runWorker(trackedCrop.image);
-      workerResult = worker.result;
-      dropped = worker.dropped;
-      result = worker.result
-        ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics }
+      const worker = await runWorkerWithBoundedFallback(trackedCrop.image);
+      workerResult = worker.result && !worker.failed && !worker.dropped
+        ? worker.result as Awaited<ReturnType<OptiFrameDecodePool['decode']>>
         : null;
+      dropped = worker.dropped;
+      result = worker.result;
       cropOffset = { x: trackedCrop.offsetX, y: trackedCrop.offsetY };
     }
 
     if (!result) {
       usedFullScan = true;
-      const worker = await runWorker(image);
-      workerResult = worker.result;
-      dropped = dropped || worker.dropped;
-      result = worker.result
-        ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics }
+      const worker = await runWorkerWithBoundedFallback(image);
+      workerResult = worker.result && !worker.failed && !worker.dropped
+        ? worker.result as Awaited<ReturnType<OptiFrameDecodePool['decode']>>
         : null;
+      dropped = dropped || worker.dropped;
+      result = worker.result;
       cropOffset = { x: 0, y: 0 };
     }
 
@@ -645,7 +660,13 @@ export function OptiFrameLab() {
           // Keep the stream if the browser rejects an optional camera optimization.
         }
       }
-      setCameraStats(prev => ({ ...prev, cameraWidth: settings?.width ?? 0, cameraHeight: settings?.height ?? 0, cameraFrameRate: settings?.frameRate ?? 0 }));
+      const finalSettings = track?.getSettings();
+      setCameraStats(prev => ({
+        ...prev,
+        cameraWidth: finalSettings?.width ?? settings?.width ?? 0,
+        cameraHeight: finalSettings?.height ?? settings?.height ?? 0,
+        cameraFrameRate: finalSettings?.frameRate ?? settings?.frameRate ?? 0,
+      }));
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
