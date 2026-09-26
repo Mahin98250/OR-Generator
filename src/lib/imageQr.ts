@@ -1,4 +1,4 @@
-import { clearSession, countChunks, getChunkIndexes, getChunks, getSession, putChunk, putSession } from './sessionStore';
+import { clearSession, getChunkIndexes, getChunks, getSession, putChunkAndCount, putSession } from './sessionStore';
 
 export const IMAGE_QR_PREFIX = 'ORIMG1:';
 export const MULTI_IMAGE_QR_PREFIX = 'ORMIMG1:';
@@ -204,15 +204,14 @@ export async function addMultiImageChunk(value: string) {
   }
   if (!compatible) await putSession(session);
 
-  const stored = await putChunk(key, parsed.index, parsed.data);
-  const received = await countChunks(key);
+  const stored = await putChunkAndCount(key, parsed.index, parsed.data);
 
   return {
     ...parsed,
-    received,
-    complete: received === session.total,
+    received: stored.received,
+    complete: stored.received === session.total,
     duplicate: stored.duplicate,
-    missingCount: Math.max(0, session.total - received),
+    missingCount: Math.max(0, session.total - stored.received),
   };
 }
 
