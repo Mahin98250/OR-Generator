@@ -3,7 +3,7 @@ import { clearSession, getChunkIndexes, getChunks, getSession, putChunkAndCount,
 export const IMAGE_QR_PREFIX = 'ORIMG1:';
 export const MULTI_IMAGE_QR_PREFIX = 'ORMIMG1:';
 const MAX_SINGLE_PAYLOAD_CHARS = 2850;
-const MULTI_CHUNK_CHARS = 1800;
+const MULTI_CHUNK_CHARS = 1200;
 const MAX_MULTI_FRAMES = 25000;
 const MAX_MULTI_IMAGE_SIZE = 25 * 1024 * 1024;
 const MAX_SINGLE_WORKING_SIDE = 1536;
