@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Link2, Loader2, RotateCcw, Layers3, Download, Pause, Play } from 'lucide-react';
-import QRCode from 'qrcode';
 import { GlassButton } from '../ui/GlassButton';
 import { useGenerator } from './GeneratorContext';
 import { encodeImageForQr, encodeImageForMultiQr } from '../../lib/imageQr';
 
 export function GeneratorForm() {
-  const { settings, setSettings } = useGenerator();
+  const { settings, setSettings, dataUrl } = useGenerator();
+  const operationRef = useRef(0);
   const [imageMode, setImageMode] = useState(false);
   const [multiMode, setMultiMode] = useState(false);
   const [multiPlan, setMultiPlan] = useState<Awaited<ReturnType<typeof encodeImageForMultiQr>> | null>(null);
@@ -33,21 +33,18 @@ export function GeneratorForm() {
       .then(chunk => {
         if (cancelled) return;
         setSettings(prev => ({ ...prev, value: chunk, errorCorrectionLevel: 'L' }));
-        return QRCode.toDataURL(chunk, {
-          width: settings.size,
-          margin: settings.margin,
-          errorCorrectionLevel: 'L',
-        });
-      })
-      .then(url => {
-        if (!cancelled && url) setMultiQr(url);
       })
       .catch(() => {
-        if (!cancelled) setError('Unable to render this Multi-QR frame.');
+        if (!cancelled) setError('Unable to prepare this Multi-QR frame.');
       });
 
     return () => { cancelled = true; };
-  }, [multiPlan, multiIndex, settings.size, settings.margin]);
+  }, [multiPlan, multiIndex, setSettings]);
+
+  useEffect(() => {
+    if (!multiPlan) return;
+    setMultiQr(dataUrl || '');
+  }, [dataUrl, multiPlan]);
 
   useEffect(() => {
     if (!multiPlaying || !multiPlan || multiPlan.total < 2) return;
@@ -61,10 +58,12 @@ export function GeneratorForm() {
 
   async function chooseImage(file?: File) {
     if (!file) return;
+    const operation = ++operationRef.current;
     setError(''); setEncoding(true); setMultiPlaying(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1);
     try {
       if (multiMode) {
         const encoded = await encodeImageForMultiQr(file);
+        if (operation !== operationRef.current) return;
         const firstChunk = await encoded.getChunk(1);
         setImageMode(true); setImageName(file.name); setMultiPlan(encoded); setMultiIndex(1);
         setImagePreview(''); setImageInfo(`Original file preserved · ${(encoded.size / 1024 / 1024).toFixed(2)} MB · ${encoded.total} QR frames`);
@@ -72,6 +71,7 @@ export function GeneratorForm() {
       } else {
         try {
           const encoded = await encodeImageForQr(file);
+          if (operation !== operationRef.current) return;
           setImageMode(true); setImageName(file.name); setImagePreview(encoded.previewUrl);
           setImageInfo(`${encoded.width}×${encoded.height} · ${encoded.preservedDimensions ? 'original pixel dimensions preserved' : 'highest resolution that fits one QR'}`);
           setSettings(prev => ({ ...prev, value: encoded.payload, errorCorrectionLevel: 'L' }));
@@ -80,6 +80,7 @@ export function GeneratorForm() {
           // to lossless Multi-QR instead of leaving the previous QR visible.
           if (singleError instanceof Error && singleError.message.includes('Multi-QR Photo')) {
             const encoded = await encodeImageForMultiQr(file);
+            if (operation !== operationRef.current) return;
             const firstChunk = await encoded.getChunk(1);
             setImageMode(true); setMultiMode(true); setImageName(file.name); setMultiPlan(encoded); setMultiIndex(1);
             setImagePreview(''); setImageInfo(`Original file preserved · ${(encoded.size / 1024 / 1024).toFixed(2)} MB · ${encoded.total} QR frames`);
@@ -94,6 +95,7 @@ export function GeneratorForm() {
     } finally { setEncoding(false); }
   }
   function reset() {
+    operationRef.current += 1;
     setImageMode(false); setMultiMode(false); setImageName(''); setImagePreview(''); setImageInfo(''); setError(''); setMultiPlaying(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1);
     setSettings(prev => ({ ...prev, value: '' }));
   }
