@@ -300,7 +300,7 @@ export function OptiFrameLab() {
     const fileTransfer = decodeOptiCodeFileTransfer(payload);
     if (fileTransfer) {
       if (receivedFileUrlRef.current) URL.revokeObjectURL(receivedFileUrlRef.current);
-      const url = URL.createObjectURL(new Blob([fileTransfer.data.buffer.slice(fileTransfer.data.byteOffset, fileTransfer.data.byteOffset + fileTransfer.data.byteLength)], { type: fileTransfer.type }));
+      const url = URL.createObjectURL(new Blob([fileTransfer.data.slice().buffer], { type: fileTransfer.type }));
       receivedFileUrlRef.current = url;
       setReceivedFile(fileTransfer);
       setReceivedFileUrl(url);
