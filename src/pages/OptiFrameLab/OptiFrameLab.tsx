@@ -359,13 +359,11 @@ export function OptiFrameLab() {
       }
     };
 
-    const runLocal = (target: ImageData) => {
-      try {
-        return decodeOptiFramePerspective(target);
-      } catch {
-        return null;
-      }
-    };
+    // The live receiver intentionally requires the worker decoder in MVP mode.
+    // Running the perspective finder on the UI thread can make scrolling freeze
+    // on slower devices. If workers are unavailable, report the condition instead
+    // of falling back to an unbounded main-thread scan.
+    const runLocal = (_target: ImageData) => null;
 
     let workerResult: Awaited<ReturnType<OptiFrameDecodePool['decode']>> = null;
     let result: ReturnType<typeof decodeOptiFramePerspective> = null;
@@ -396,7 +394,7 @@ export function OptiFrameLab() {
         const worker = workerResults[index] ?? null;
         const result = worker
           ? { frame: worker.frame, diagnostics: worker.diagnostics }
-          : (decodePoolRef.current.capacity === 0 ? runLocal(lane.image) : null);
+          : null;
         return { lane, result, worker };
       });
       const successes = laneResults.filter(entry => entry.result);
@@ -480,7 +478,7 @@ export function OptiFrameLab() {
       dropped = worker.dropped;
       result = worker.result
         ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics }
-        : (worker.dropped || worker.failed || decodePoolRef.current.capacity === 0 ? runLocal(trackedCrop.image) : null);
+        : null;
       cropOffset = { x: trackedCrop.offsetX, y: trackedCrop.offsetY };
     }
 
@@ -491,7 +489,7 @@ export function OptiFrameLab() {
       dropped = dropped || worker.dropped;
       result = worker.result
         ? { frame: worker.result.frame, diagnostics: worker.result.diagnostics }
-        : (worker.dropped || worker.failed || decodePoolRef.current.capacity === 0 ? runLocal(image) : null);
+        : null;
       cropOffset = { x: 0, y: 0 };
     }
 
@@ -545,8 +543,10 @@ export function OptiFrameLab() {
     });
 
     if (!result) {
-      if (acquisitionFailureRef.current >= 2) {
-        setAcquisition(inspectOptiFrameAcquisition(image));
+      if (decodePoolRef.current.capacity === 0) {
+        setStatus('OptiFrame decoder workers are unavailable in this browser. Upload decoding still works; camera MVP requires Web Worker support.');
+      } else if (acquisitionFailureRef.current >= 2) {
+        setStatus('Searching for a 1× OptiFrame…');
         acquisitionFailureRef.current = 0;
       }
       return;
