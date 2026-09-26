@@ -6,11 +6,24 @@ const MAX_SINGLE_PAYLOAD_CHARS = 2850;
 const MULTI_CHUNK_CHARS = 1800;
 const MAX_MULTI_FRAMES = 25000;
 const MAX_MULTI_IMAGE_SIZE = 25 * 1024 * 1024;
+const MAX_SINGLE_WORKING_SIDE = 1536;
+const MAX_SINGLE_FILE_SIZE = 15 * 1024 * 1024;
+
+function yieldToBrowser() {
+  return new Promise<void>(resolve => {
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(() => resolve(), { timeout: 40 });
+    } else {
+      window.setTimeout(resolve, 0);
+    }
+  });
+}
 
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
+    img.decoding = 'async';
     img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Unable to read image.')); };
     img.src = url;
@@ -23,11 +36,15 @@ function render(img: HTMLImageElement, side: number, quality: number) {
   const height = Math.max(1, Math.round(img.naturalHeight * scale));
   const canvas = document.createElement('canvas');
   canvas.width = width; canvas.height = height;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { alpha: false });
   if (!ctx) throw new Error('Canvas unavailable.');
-  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, width, height);
-  return { dataUrl: canvas.toDataURL('image/jpeg', quality), width, height };
+  const dataUrl = canvas.toDataURL('image/jpeg', quality);
+  canvas.width = 1;
+  canvas.height = 1;
+  return { dataUrl, width, height };
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -94,8 +111,6 @@ export async function encodeImageForMultiQr(file: File) {
     throw new Error('This image would require too many QR frames. Choose a smaller image.');
   }
 
-  // Generate one payload at a time so large photos do not create thousands
-  // of QR payload strings in memory at once.
   const getChunk = async (index: number) => {
     if (!Number.isInteger(index) || index < 1 || index > total) {
       throw new Error('Multi-QR frame index is out of range.');
@@ -122,8 +137,6 @@ export function parseMultiImageQr(value: string) {
   const parts = value.split('|');
   if (parts.length !== 6 && parts.length !== 7) return null;
 
-  // v1: prefix+id,mime,hash,index,total,data
-  // v2: prefix+id,mime,name,hash,index,total,data
   const sessionRaw = parts[0];
   const mimeRaw = parts[1];
   const isV2 = parts.length === 7;
@@ -279,17 +292,33 @@ export async function reconstructMultiImage(id: string) {
 
 export async function encodeImageForQr(file: File) {
   if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
-  if (file.size > 15 * 1024 * 1024) throw new Error('Please choose an image smaller than 15 MB.');
+  if (file.size > MAX_SINGLE_FILE_SIZE) throw new Error('Please choose an image smaller than 15 MB.');
+
   const img = await loadImage(file);
-  const attempts = [[4096,.92],[3072,.88],[2048,.84],[1600,.80],[1280,.76],[1024,.72],[900,.68],[800,.64],[700,.60],[600,.56],[512,.52],[448,.48],[384,.44],[320,.40],[256,.36]] as const;
-  for (const [side, quality] of attempts) {
-    const rendered = render(img, side, quality);
-    const payload = IMAGE_QR_PREFIX + rendered.dataUrl;
-    if (payload.length <= MAX_SINGLE_PAYLOAD_CHARS) {
-      const preservedDimensions = rendered.width === img.naturalWidth && rendered.height === img.naturalHeight;
-      return { payload, previewUrl: rendered.dataUrl, width: rendered.width, height: rendered.height, originalWidth: img.naturalWidth, originalHeight: img.naturalHeight, preservedDimensions };
+  try {
+    const attempts = [[MAX_SINGLE_WORKING_SIDE,.82],[1280,.78],[1024,.72],[900,.68],[800,.64],[700,.60],[600,.56],[512,.52],[448,.48],[384,.44],[320,.40],[256,.36]] as const;
+
+    for (const [side, quality] of attempts) {
+      await yieldToBrowser();
+      const rendered = render(img, side, quality);
+      const payload = IMAGE_QR_PREFIX + rendered.dataUrl;
+      if (payload.length <= MAX_SINGLE_PAYLOAD_CHARS) {
+        const preservedDimensions = rendered.width === img.naturalWidth && rendered.height === img.naturalHeight;
+        return {
+          payload,
+          previewUrl: rendered.dataUrl,
+          width: rendered.width,
+          height: rendered.height,
+          originalWidth: img.naturalWidth,
+          originalHeight: img.naturalHeight,
+          preservedDimensions,
+        };
+      }
     }
+  } finally {
+    img.src = '';
   }
+
   throw new Error('This photo cannot fit into one QR code. Use Multi-QR Photo for the original file with no downscaling.');
 }
 
