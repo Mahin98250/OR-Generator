@@ -362,6 +362,17 @@ function searchFinder(image: ImageData, corner: Corner) {
 
   const scan = (angles: readonly number[]) => {
     const candidates: Array<{ x: number; y: number; score: number; scale: number; angle: number }> = [];
+  const retain = (candidate: { x: number; y: number; score: number; scale: number; angle: number }) => {
+    if (candidates.length < 4) {
+      candidates.push(candidate);
+      return;
+    }
+    let weakest = 0;
+    for (let index = 1; index < candidates.length; index += 1) {
+      if (candidates[index].score < candidates[weakest].score) weakest = index;
+    }
+    if (candidate.score > candidates[weakest].score) candidates[weakest] = candidate;
+  };
     const retain = (candidate: { x: number; y: number; score: number; scale: number; angle: number }) => {
       // Keep only the six strongest candidates without sorting the whole list
       // for every hit. Finder acquisition runs across thousands of positions,
@@ -441,11 +452,10 @@ function searchFinder(image: ImageData, corner: Corner) {
 
 type PerspectiveAnchorSet = readonly [OptiFrameAnchor, OptiFrameAnchor, OptiFrameAnchor, OptiFrameAnchor];
 
-function searchFinderNear(image: ImageData, corner: Corner, previous: OptiFrameAnchor) {
+function searchFinderNear(image: ImageData, previous: OptiFrameAnchor) {
   const width = image.width;
   const height = image.height;
-  const expectedScale = Math.min(width, height) / OPTIFRAME_SIZE;
-  const step = Math.max(1, Math.min(4, Math.round(Math.max(1, previous.scale * 0.3))));
+    const step = Math.max(1, Math.min(4, Math.round(Math.max(1, previous.scale * 0.3))));
   const radius = Math.max(12, Math.round(previous.scale * 5));
   const scaleRadius = Math.max(1, previous.scale * 0.35);
   const scaleStep = Math.max(0.35, previous.scale * 0.08);
@@ -457,7 +467,7 @@ function searchFinderNear(image: ImageData, corner: Corner, previous: OptiFrameA
       for (let y = Math.max(4, previous.y - radius); y <= Math.min(height - 5, previous.y + radius); y += step) {
         for (let x = Math.max(4, previous.x - radius); x <= Math.min(width - 5, previous.x + radius); x += step) {
           const score = finderQuickScore(image, x, y, scale, angle);
-          if (score > 0.55) candidates.push({ x, y, score, scale, angle });
+          if (score > 0.55) retain({ x, y, score, scale, angle });
         }
       }
     }
@@ -648,8 +658,8 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
   if (!image) return null;
 
   if (lastPerspectiveAnchors) {
-    const tracked = lastPerspectiveAnchors.map((anchor, index) =>
-      searchFinderNear(image, (['tl', 'tr', 'bl', 'br'] as const)[index], anchor),
+    const tracked = lastPerspectiveAnchors.map((anchor) =>
+      searchFinderNear(image, anchor),
     );
     if (tracked.every(Boolean)) {
       const anchors = tracked as PerspectiveAnchorSet;
