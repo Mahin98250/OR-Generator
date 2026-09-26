@@ -148,6 +148,18 @@ export function analyzeScan(value: string, format = ''): ScanAnalysis {
     };
   }
 
+  if (/^(?:EAN|UPC|CODE|ITF|CODABAR|DATA MATRIX|PDF417|AZTEC)/i.test(normalizedFormat) || /^(?:\d{8}|\d{12,14})$/.test(raw)) {
+    return {
+      kind: 'barcode',
+      title: normalizedFormat ? `${format} barcode` : 'Barcode',
+      subtitle: raw,
+      value: raw,
+      actionLabel: 'Search barcode',
+      actionUrl: `https://www.google.com/search?q=${encodeURIComponent(raw)}`,
+      meta: { Format: format || 'Barcode', Value: raw },
+    };
+  }
+
   if (/^https?:\/\//i.test(raw)) {
     try {
       const url = new URL(raw);
@@ -188,18 +200,6 @@ export function analyzeScan(value: string, format = ''): ScanAnalysis {
       actionLabel: 'Call',
       actionUrl: `tel:${phone.replace(/[^+\d]/g, '')}`,
       meta: { Phone: phone },
-    };
-  }
-
-  if (/^(EAN|UPC|CODE|ITF|CODABAR|DATA MATRIX|PDF417|AZTEC)/i.test(normalizedFormat) || /^(\d{8}|\d{12,14})$/.test(raw)) {
-    return {
-      kind: 'barcode',
-      title: normalizedFormat ? `${format} barcode` : 'Barcode',
-      subtitle: raw,
-      value: raw,
-      actionLabel: 'Search barcode',
-      actionUrl: `https://www.google.com/search?q=${encodeURIComponent(raw)}`,
-      meta: { Format: format || 'Barcode', Value: raw },
     };
   }
 
