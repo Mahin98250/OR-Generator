@@ -3,9 +3,10 @@ import { ImagePlus, Link2, Loader2, RotateCcw, Layers3, Download, Pause, Play } 
 import { GlassButton } from '../ui/GlassButton';
 import { useGenerator } from './GeneratorContext';
 import { encodeImageForQr, encodeImageForMultiQr } from '../../lib/imageQr';
+import { toQrDataUrl } from '../../lib/qr';
 
 export function GeneratorForm() {
-  const { settings, setSettings, dataUrl } = useGenerator();
+  const { settings, setSettings } = useGenerator();
   const operationRef = useRef(0);
   const requestedMultiModeRef = useRef(false);
   const [imageMode, setImageMode] = useState(false);
@@ -30,22 +31,26 @@ export function GeneratorForm() {
     }
 
     let cancelled = false;
+    setMultiQr('');
+
     void multiPlan.getChunk(multiIndex)
-      .then(chunk => {
+      .then(async chunk => {
         if (cancelled) return;
         setSettings(prev => ({ ...prev, value: chunk, errorCorrectionLevel: 'L' }));
+
+        const frameUrl = await toQrDataUrl({
+          ...settings,
+          value: chunk,
+          errorCorrectionLevel: 'L',
+        });
+        if (!cancelled) setMultiQr(frameUrl);
       })
       .catch(() => {
-        if (!cancelled) setError('Unable to prepare this Multi-QR frame.');
+        if (!cancelled) setError('Unable to render this Multi-QR frame.');
       });
 
     return () => { cancelled = true; };
-  }, [multiPlan, multiIndex, setSettings]);
-
-  useEffect(() => {
-    if (!multiPlan) return;
-    setMultiQr(dataUrl || '');
-  }, [dataUrl, multiPlan]);
+  }, [multiPlan, multiIndex, setSettings, settings.size, settings.margin, settings.dark, settings.light]);
 
   useEffect(() => {
     if (!multiPlaying || !multiPlan || multiPlan.total < 2) return;
