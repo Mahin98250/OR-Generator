@@ -177,3 +177,271 @@ textarea, input, select {
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Tool-level mobile application layouts */
+@media (max-width: 767px) {
+  .app-main .flex > *,
+  .app-main .grid > * {
+    min-width: 0;
+  }
+
+  .app-main p,
+  .app-main h1,
+  .app-main h2,
+  .app-main h3,
+  .app-main h4,
+  .app-main label,
+  .app-main span {
+    overflow-wrap: anywhere;
+  }
+
+  .app-main button,
+  .app-main a:not(.mobile-bottom-nav a),
+  .app-main select,
+  .app-main input[type="button"],
+  .app-main input[type="submit"] {
+    min-height: 42px;
+  }
+
+  /* Scanner: camera-first mobile workflow */
+  .scanner-page {
+    padding-bottom: 0;
+  }
+  .scanner-intro {
+    margin-bottom: .75rem !important;
+    padding: 1rem !important;
+    border-radius: 24px !important;
+  }
+  .scanner-intro > div > a {
+    font-size: 11px;
+  }
+  .scanner-intro h1 {
+    margin-top: .75rem !important;
+    font-size: clamp(2rem, 10vw, 2.75rem) !important;
+  }
+  .scanner-intro p {
+    margin-top: .65rem !important;
+    font-size: .82rem !important;
+    line-height: 1.45 !important;
+  }
+  .scanner-intro > div > div:last-child {
+    margin-top: .75rem !important;
+    gap: .35rem !important;
+    max-height: 4.2rem;
+    overflow: auto;
+  }
+  .scanner-intro > div > div:last-child span {
+    padding: .4rem .55rem !important;
+    font-size: 9px !important;
+  }
+  .scanner-tool {
+    gap: .75rem;
+  }
+  .scanner-modebar {
+    gap: .6rem !important;
+    padding: .6rem !important;
+    border-radius: 18px !important;
+  }
+  .scanner-modebar > div:first-child p:first-child {
+    font-size: 9px;
+  }
+  .scanner-modebar > div:first-child p:last-child {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+  .scanner-modebar > div:last-child button {
+    min-height: 40px;
+    padding-left: .3rem;
+    padding-right: .3rem;
+    font-size: 10px;
+  }
+  .scanner-camera {
+    border-radius: 24px !important;
+  }
+  .scanner-camera > div.relative {
+    height: min(63svh, 620px) !important;
+    min-height: 420px !important;
+  }
+  .scanner-camera-actions {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: .5rem !important;
+  }
+  .scanner-camera-actions button {
+    min-width: 0;
+    min-height: 48px;
+    justify-content: center;
+    padding: .55rem .25rem !important;
+    border-radius: 15px !important;
+  }
+  .scanner-camera-actions button:first-child {
+    grid-column: span 2;
+  }
+  .scanner-camera-actions button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .scanner-image-card {
+    min-height: 170px !important;
+    padding: 1rem !important;
+    border-radius: 22px !important;
+  }
+  .scanner-engine {
+    padding: .75rem !important;
+    border-radius: 18px !important;
+  }
+  .scanner-engine p {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  /* Generator: one-thumb-friendly controls and predictable action grid */
+  .generator-page {
+    padding-top: .75rem !important;
+  }
+  .generator-page .space-y-4 {
+    gap: .7rem;
+  }
+  .generator-mode-tabs {
+    gap: .25rem !important;
+    padding: .25rem !important;
+    border-radius: 18px !important;
+  }
+  .generator-mode-tabs button {
+    min-height: 46px !important;
+    padding: .45rem .2rem !important;
+    font-size: 10px !important;
+    line-height: 1.2;
+  }
+  .generator-image-source button {
+    min-height: 48px !important;
+  }
+  .generator-primary-actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .generator-primary-actions > * {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+  }
+  .generator-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .generator-actions > * {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+    padding-left: .55rem !important;
+    padding-right: .55rem !important;
+  }
+  .generator-page img {
+    max-height: min(68svh, 520px);
+  }
+
+  /* Transfer: sender/receiver should feel like two app modes */
+  .transfer-page {
+    padding-top: .75rem !important;
+  }
+  .transfer-page > div:first-child h1 {
+    font-size: clamp(2rem, 10vw, 2.7rem) !important;
+    line-height: 1.02;
+  }
+  .transfer-page > div:first-child p {
+    font-size: .82rem;
+    line-height: 1.45;
+  }
+  .transfer-tabs {
+    position: sticky;
+    top: 68px;
+    z-index: 20;
+    margin-left: -2px;
+    margin-right: -2px;
+    padding: .25rem !important;
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+  }
+  .transfer-tabs button {
+    min-height: 46px;
+    font-size: 11px;
+  }
+  .transfer-page .transfer-canvas {
+    min-height: 0 !important;
+    aspect-ratio: 1 / 1;
+    width: min(92vw, 620px) !important;
+    max-height: 62svh;
+    object-fit: contain;
+  }
+  .transfer-page .transfer-camera video {
+    height: min(64svh, 640px) !important;
+    min-height: 400px !important;
+    object-fit: cover;
+  }
+  .transfer-page .transfer-camera,
+  .transfer-page .transfer-receiver-panel {
+    border-radius: 22px !important;
+  }
+  .transfer-page .transfer-receiver-panel {
+    padding: 1rem !important;
+  }
+  .transfer-page select {
+    min-width: 0;
+  }
+
+  /* Experimental lab: camera and optical surface get dedicated vertical stages */
+  .optiframe-page {
+    padding-top: .75rem !important;
+  }
+  .optiframe-page > div:first-child h1 {
+    font-size: clamp(2rem, 10vw, 2.7rem) !important;
+    line-height: 1.02;
+  }
+  .optiframe-camera > div.relative {
+    min-height: 400px !important;
+    height: min(58svh, 580px) !important;
+    aspect-ratio: auto !important;
+  }
+  .optiframe-surface {
+    width: 100% !important;
+    max-width: none !important;
+  }
+  .optiframe-playback {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .optiframe-playback > * {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+  }
+  .optiframe-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .optiframe-page .rounded-2xl p,
+  .optiframe-page .rounded-[22px] p {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 390px) {
+  .scanner-camera > div.relative {
+    min-height: 380px !important;
+  }
+  .scanner-camera-actions button {
+    font-size: 10px;
+  }
+  .generator-mode-tabs button {
+    font-size: 9px !important;
+  }
+  .generator-actions,
+  .generator-primary-actions,
+  .optiframe-playback {
+    gap: .35rem !important;
+  }
+  .transfer-page .transfer-canvas {
+    width: 96vw !important;
+  }
+}
