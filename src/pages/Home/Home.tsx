@@ -11,7 +11,7 @@ const features = [
 
 export function Home() {
   return (
-    <section className="mx-auto max-w-6xl py-10 sm:py-16">
+    <section className="home-page mx-auto max-w-6xl py-10 sm:py-16">
       <div className="relative overflow-hidden rounded-[36px] border border-white/10 bg-white/[.035] px-5 py-10 shadow-glass backdrop-blur-xl sm:px-10 sm:py-16">
         <div className="pointer-events-none absolute -left-20 -top-28 h-72 w-72 rounded-full bg-indigo-500/20 blur-3xl" />
         <div className="pointer-events-none absolute -right-20 top-10 h-72 w-72 rounded-full bg-cyan-400/15 blur-3xl" />
