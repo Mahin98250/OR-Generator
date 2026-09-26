@@ -23,7 +23,7 @@ export function Diagnostics() {
   const failed = results.length - passed;
 
   return (
-    <section className="mx-auto max-w-5xl py-8 sm:py-12">
+    <section className="diagnostics-page mx-auto max-w-5xl py-8 sm:py-12">
       <Link to="/" className="text-xs font-semibold text-[var(--text-muted)]">Back home</Link>
       <div className="mt-5 rounded-[32px] border border-cyan-300/15 bg-[var(--bg-elevated)] p-6 shadow-glass backdrop-blur-2xl sm:p-9">
         <div className="flex flex-wrap items-center gap-2">
