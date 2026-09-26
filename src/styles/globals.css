@@ -445,3 +445,74 @@ textarea, input, select {
     width: 96vw !important;
   }
 }
+
+
+@media (max-width: 767px) {
+  /* Secondary app screens: compact headers and no squeezed action rows */
+  .tools-page,
+  .history-page,
+  .statistics-page,
+  .settings-page,
+  .diagnostics-page {
+    padding-top: .75rem !important;
+  }
+
+  .tools-page > div:first-child,
+  .diagnostics-page > div:nth-child(2) {
+    padding: 1rem !important;
+    border-radius: 24px !important;
+  }
+
+  .tools-page > div:first-child h1,
+  .diagnostics-page h1 {
+    font-size: clamp(2rem, 10vw, 2.7rem) !important;
+    line-height: 1.02;
+  }
+
+  .tools-page .grid,
+  .history-page .grid,
+  .statistics-page .grid,
+  .settings-page .grid,
+  .diagnostics-page .grid {
+    min-width: 0;
+  }
+
+  .history-page .flex.flex-wrap,
+  .settings-page .flex.flex-wrap,
+  .diagnostics-page .flex.flex-wrap {
+    width: 100%;
+  }
+
+  .history-page .flex.flex-wrap > *,
+  .settings-page .flex.flex-wrap > *,
+  .diagnostics-page .flex.flex-wrap > * {
+    min-width: 0;
+    flex: 1 1 150px;
+  }
+
+  .history-page input,
+  .history-page textarea,
+  .history-page select,
+  .tools-page textarea,
+  .settings-page input,
+  .settings-page select {
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .history-page [class*="truncate"] {
+    max-width: 100%;
+  }
+
+  .statistics-page svg {
+    max-width: 100%;
+  }
+
+  .diagnostics-page pre,
+  .diagnostics-page code {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
