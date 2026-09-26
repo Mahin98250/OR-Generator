@@ -516,3 +516,31 @@ textarea, input, select {
     overflow-wrap: anywhere;
   }
 }
+
+
+@media (max-width: 767px) {
+  .home-page {
+    padding-top: .75rem !important;
+  }
+  .home-page > div:first-child {
+    padding: 1rem !important;
+    border-radius: 24px !important;
+  }
+  .home-page > div:first-child h1 {
+    font-size: clamp(2.25rem, 12vw, 3.2rem) !important;
+    line-height: .98;
+  }
+  .home-page > div:first-child .flex.flex-wrap {
+    gap: .4rem !important;
+  }
+  .home-page > div:first-child .flex.flex-wrap a {
+    flex: 1 1 120px;
+    min-height: 46px;
+  }
+  .home-page > div:first-child + .grid {
+    margin-top: .75rem !important;
+  }
+  .home-page .glass-panel {
+    border-radius: 20px !important;
+  }
+}
