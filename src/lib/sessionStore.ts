@@ -130,6 +130,61 @@ export async function putChunk(sessionKey: string, index: number, data: string) 
   });
 }
 
+export async function putChunkAndCount(sessionKey: string, index: number, data: string) {
+  const db = await openDb();
+  const key = `${sessionKey}|${index}`;
+
+  return new Promise<{ duplicate: boolean; received: number }>((resolve, reject) => {
+    const tx = db.transaction('chunks', 'readwrite');
+    const store = tx.objectStore('chunks');
+    const sessionIndex = store.index('sessionKey');
+    const get = store.get(key);
+
+    let duplicate = false;
+    let received = 0;
+    let settled = false;
+
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      try { tx.abort(); } catch { /* transaction may already be closing */ }
+      reject(error);
+    };
+
+    get.onsuccess = () => {
+      const existing = get.result as StoredChunk | undefined;
+      if (existing) {
+        duplicate = true;
+        if (existing.data !== data) {
+          fail(new Error('Conflicting frame data was detected.'));
+          return;
+        }
+      } else {
+        store.put({ key, sessionKey, index, data } satisfies StoredChunk);
+      }
+
+      const count = sessionIndex.count(IDBKeyRange.only(sessionKey));
+      count.onsuccess = () => { received = count.result; };
+      count.onerror = () => fail(count.error ?? new Error('Unable to count stored transfer frames.'));
+    };
+
+    get.onerror = () => fail(get.error ?? new Error('Unable to read local transfer storage.'));
+    tx.oncomplete = () => {
+      if (!settled) {
+        settled = true;
+        resolve({ duplicate, received });
+      }
+    };
+    tx.onerror = () => fail(tx.error ?? new Error('Unable to save the transfer frame.'));
+    tx.onabort = () => {
+      if (!settled) {
+        settled = true;
+        reject(tx.error ?? new Error('Unable to save the transfer frame.'));
+      }
+    };
+  });
+}
+
 export async function getChunks(sessionKey: string) {
   const db = await openDb();
   const tx = db.transaction('chunks', 'readonly');
