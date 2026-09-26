@@ -669,7 +669,7 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
         return {
           frame,
           diagnostics: {
-            anchors: [anchors[0], anchors[1], anchors[2], anchors[3]],
+            anchors: [anchors[0], anchors[1], anchors[2], anchors[3]] as [OptiFrameAnchor, OptiFrameAnchor, OptiFrameAnchor, OptiFrameAnchor],
             confidence: anchors.reduce((sum, anchor) => sum + anchor.score, 0) / anchors.length,
             sampleWidth: image.width,
             sampleHeight: image.height,
@@ -700,7 +700,7 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
   return {
     frame,
     diagnostics: {
-      anchors: [anchors[0], anchors[1], anchors[2], anchors[3]],
+      anchors: [anchors[0], anchors[1], anchors[2], anchors[3]] as [OptiFrameAnchor, OptiFrameAnchor, OptiFrameAnchor, OptiFrameAnchor],
       confidence: anchors.reduce((sum, anchor) => sum + anchor.score, 0) / anchors.length,
       sampleWidth: image.width,
       sampleHeight: image.height,
