@@ -143,6 +143,10 @@ export class OptiFrameDecodePool {
 
     const run = async () => {
       while (queue.length > 0) {
+        // If every worker has failed while a batch is in flight, stop the
+        // scheduler instead of retrying forever and hanging the receiver.
+        if (this.capacity === 0) return;
+
         const item = queue.shift();
         if (!item) return;
 
