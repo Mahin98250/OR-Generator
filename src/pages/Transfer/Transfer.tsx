@@ -67,6 +67,9 @@ export function Transfer() {
   const timerRef=useRef<number|null>(null);
   const playbackRafRef=useRef<number|null>(null);
   const playbackLastAtRef=useRef(0);
+  const playbackGroupRef=useRef(0);
+  const playbackPlanKeyRef=useRef<string | null>(null);
+  const playbackFountainRef=useRef(false);
   const qrEncoderRef=useRef<QrEncodePool|null>(null);
   const qrCanvasRef=useRef<HTMLCanvasElement|null>(null);
   const renderCacheRef=useRef<Map<string,{matrices:QrMatrix[];renderMs:number;encodeMs:number}>>(new Map());
@@ -143,7 +146,25 @@ export function Transfer() {
     const tick=(now:number)=>{
       if(playbackLastAtRef.current===0 || now-playbackLastAtRef.current>=intervalMs){
         playbackLastAtRef.current=now;
-        setGroup(v=>v+1);
+        playbackGroupRef.current+=1;
+
+        // Keep playback on the animation-frame path. The QR canvas is painted
+        // directly from the warmed cache, so React does not re-render the
+        // entire transfer screen for every optical frame.
+        const planKey=playbackPlanKeyRef.current;
+        if(planKey){
+          const fountainMode=playbackFountainRef.current;
+          const plan=fountainMode ? fountain : compat;
+          if(plan && qrCanvasRef.current){
+            const grid=getDisplayLaneCount() === 1 ? 1 : getDisplayLaneCount() === 2 ? 2 : (fountainMode ? FOUNTAIN_GRID_SIZE : OR_TRANSFER_GRID_SIZE);
+            const totalGroups=fountainMode
+              ? Math.max(1,Math.ceil((plan as FountainPlan).recommended/grid))
+              : Math.max(1,Math.ceil((plan as Awaited<ReturnType<typeof createTransfer>>).total/grid));
+            const nextGroup=fountainMode ? playbackGroupRef.current : playbackGroupRef.current % totalGroups;
+            const cached=renderCacheRef.current.get(planKey+':'+nextGroup);
+            if(cached) drawQrMatricesToCanvas(qrCanvasRef.current,cached.matrices,1400,18);
+          }
+        }
       }
       playbackRafRef.current=window.requestAnimationFrame(tick);
     };
@@ -156,7 +177,7 @@ export function Transfer() {
       }
       playbackLastAtRef.current=0;
     };
-  },[playing,intervalMs]);
+  },[playing,intervalMs,fountain,compat]);
 
   function clearRenderPipeline(){
     renderEpochRef.current+=1;
@@ -227,7 +248,10 @@ export function Transfer() {
     const planKey=fountainMode
       ? 'f:'+(fountain as FountainPlan).session
       : 'c:'+(compat as Awaited<ReturnType<typeof createTransfer>>).session;
-    const groupIndices=[group,group+1,group+2,group+3];
+    playbackPlanKeyRef.current=planKey;
+    playbackFountainRef.current=fountainMode;
+    const startGroup=playbackGroupRef.current;
+    const groupIndices=[startGroup,startGroup+1,startGroup+2,startGroup+3];
 
     const loadGroup=async(index:number,display=false)=>{
       try{
@@ -235,7 +259,7 @@ export function Transfer() {
         if(cancelled || epoch!==renderEpochRef.current)return;
         if(display){
           renderCountRef.current+=1;
-          if(qrCanvasRef.current) drawQrMatricesToCanvas(qrCanvasRef.current,entry.matrices,1400,18);
+          if(qrCanvasRef.current && !playing) drawQrMatricesToCanvas(qrCanvasRef.current,entry.matrices,1400,18);
           const now=performance.now();
           if(renderWindowStatsRef.current.started===0)renderWindowStatsRef.current.started=now;
           renderWindowStatsRef.current.count+=1;
@@ -280,10 +304,11 @@ export function Transfer() {
     void loadGroup(group,true);
     for(const index of groupIndices.slice(1)) void loadGroup(index,false);
     return()=>{cancelled=true;};
-  },[fountain,compat,group,autoTune,intervalMs]);
+  },[fountain,compat,autoTune,intervalMs,playing]);
 
   function stopPlayback(){
     setPlaying(false);
+    playbackGroupRef.current=0;
     void setScreenWakeLock(false);
     if(timerRef.current!==null){
       window.clearInterval(timerRef.current);
@@ -309,7 +334,7 @@ export function Transfer() {
 
   async function choose(value?:File){
     if(!value)return;
-    setError(''); setResult(null); stopPlayback(); setGroup(0); resetDecoder(); clearRenderPipeline(); receiverStartedRef.current=null; solvedRef.current=0; decodedBytesRef.current=0; duplicateCountRef.current=0; detectedWindowRef.current={started:0,count:0}; renderWindowRef.current={started:0,count:0};
+    setError(''); setResult(null); stopPlayback(); playbackGroupRef.current=0; setGroup(0); resetDecoder(); clearRenderPipeline(); receiverStartedRef.current=null; solvedRef.current=0; decodedBytesRef.current=0; duplicateCountRef.current=0; detectedWindowRef.current={started:0,count:0}; renderWindowRef.current={started:0,count:0};
     try{
       if(mode==='fountain'){
         const plan=await createFountainTransfer(value); setFountain(plan); setCompat(null);
