@@ -801,7 +801,7 @@ export function OptiFrameLab() {
         <div className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs font-bold text-cyan-300">{capacity} payload bytes / frame</div>
       </div>
 
-      <GlassCard className="lg:col-span-2">
+      <GlassCard>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-3">
