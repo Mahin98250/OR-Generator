@@ -15,6 +15,7 @@ import {
   reconstructMultiImage,
 } from './imageQr';
 import {
+  OR_TRANSFER_CHUNK_CHARS,
   addTransferFrame,
   clearTransfer,
   createTransfer,
@@ -225,7 +226,9 @@ async function fountainRoundTrip() {
   const kept = rawFrames.filter((_, index) => index >= Math.floor(frameCount * 0.15) && index % 4 !== 0);
   const reordered = [...kept].reverse();
   const duplicate = kept.slice(0, Math.min(8, kept.length));
-  const delivery = [...reordered, ...duplicate];
+  const duplicateFrame = duplicate[0];
+  assert(duplicateFrame, 'No duplicate fountain fixture was generated.');
+  const delivery = [duplicateFrame, duplicateFrame, ...reordered, ...duplicate];
 
   const first = delivery[0];
   assert(first, 'No fountain delivery fixture survived the simulated loss.');
@@ -260,16 +263,19 @@ async function fountainRecoveryStress() {
     const original = makeBytes(size, size % 251);
     const file = new File([original], 'diagnostic-fountain-stress.bin', { type: 'application/octet-stream' });
     const plan = await createFountainTransfer(file);
-    const count = Math.ceil(plan.blocks * 1.45);
+    const cycles = Math.ceil(plan.blocks * 1.65);
     const frames: FountainDroplet[] = [];
 
-    for (let i = 0; i < count; i += 1) {
-      const raw = await plan.getDroplet(i % 4, i);
-      const parsed = parseFountainFrame(raw);
-      assert(parsed, 'Stress droplet ' + i + ' failed to parse.');
-      // Deterministic optical-loss model: keep 3 of every 4 frames, then
-      // scramble delivery and inject duplicates.
-      if ((i * 17 + 11) % 4 !== 0) frames.push(parsed);
+    for (let sequence = 0; sequence < cycles; sequence += 1) {
+      for (let lane = 0; lane < 4; lane += 1) {
+        const raw = await plan.getDroplet(lane, sequence);
+        const parsed = parseFountainFrame(raw);
+        assert(parsed, 'Stress droplet ' + sequence + '/' + lane + ' failed to parse.');
+        // Deterministic optical-loss model: keep 3 of every 4 optical frames,
+        // matching the four-lane sender schedule.
+        const ordinal = sequence * 4 + lane;
+        if ((ordinal * 17 + 11) % 4 !== 0) frames.push(parsed);
+      }
     }
 
     worstSeen = Math.max(worstSeen, frames.length);
@@ -348,7 +354,7 @@ async function fountainSeedContinuity() {
   }
 
   assert(randomSeeds.size === 2_000, 'Deterministic random seed stream repeated.');
-  assert(systematicTargets.size === Math.min(plan.blocks, 1_000), 'Systematic lane did not cycle through source blocks correctly.');
+  assert(systematicTargets.size === Math.min(plan.blocks, 2_000), 'Systematic lanes did not cycle through source blocks correctly.');
   return '2,000 deterministic random seeds + systematic source coverage verified';
 }
 
@@ -365,8 +371,10 @@ async function qrEncoderWorkerDiagnostic() {
     ]);
     assert(result.matrices.length === 4, 'QR encoder worker returned the wrong matrix count.');
     assert(result.matrices.every(matrix => matrix.size > 0 && matrix.data.length === matrix.size * matrix.size), 'QR encoder worker returned an invalid matrix.');
-    assert(result.cacheHits === 1, 'QR encoder matrix cache did not hit for a repeated payload.');
-    return result.cacheHits + ' cache hit · ' + result.workerJobs + ' worker job(s) · ' + Math.round(result.encodeMs) + ' ms encode pipeline';
+    assert(result.cacheHits === 0, 'QR encoder counted an in-flight duplicate as a cache hit.');
+    const cached = await pool.encode(['OptiCode worker diagnostic']);
+    assert(cached.cacheHits === 1, 'QR encoder matrix cache did not hit on a repeated call.');
+    return cached.cacheHits + ' cache hit · ' + result.workerJobs + ' worker job(s) · ' + Math.round(result.encodeMs + cached.encodeMs) + ' ms encode pipeline';
   } finally {
     pool.dispose();
   }
@@ -381,9 +389,14 @@ async function optiFrameWorkerDiagnostic() {
 
   const { encodeOptiFrame } = await import('./optiframe');
   const frame = encodeOptiFrame(payload, 3, 9);
-  const ctx = frame.canvas.getContext('2d', { willReadFrequently: true });
-  assert(ctx, 'OptiFrame worker fixture canvas context unavailable.');
-  const image = ctx.getImageData(0, 0, frame.canvas.width, frame.canvas.height);
+  const fixture = document.createElement('canvas');
+  fixture.width = 768;
+  fixture.height = 768;
+  const fixtureCtx = fixture.getContext('2d', { willReadFrequently: true });
+  assert(fixtureCtx, 'OptiFrame worker fixture canvas context unavailable.');
+  fixtureCtx.imageSmoothingEnabled = false;
+  fixtureCtx.drawImage(frame.canvas, 0, 0, 768, 768);
+  const image = fixtureCtx.getImageData(0, 0, fixture.width, fixture.height);
   const pool = new OptiFrameDecodePool(undefined, true);
 
   try {
@@ -605,7 +618,7 @@ async function parserValidation() {
   const multiMalformed = 'ORMIMG1:session|image%2Fpng|Zm9v|not-a-hash|1|1|A';
   assert(parseMultiImageQr(multiMalformed) === null, 'Malformed Multi-QR hash was accepted.');
 
-  const transferOversized = 'ORX1:session|application%2Foctet-stream|Zg|1|' + 'a'.repeat(64) + '|1|1|' + 'A'.repeat(1201);
+  const transferOversized = 'ORX1:session|application%2Foctet-stream|Zg|1|' + 'a'.repeat(64) + '|1|1|' +  'A'.repeat(OR_TRANSFER_CHUNK_CHARS + 1);
   assert(parseTransferFrame(transferOversized) === null, 'Oversized OR Transfer payload was accepted.');
 
   return 'Malformed hashes and oversized payloads were rejected before storage';
