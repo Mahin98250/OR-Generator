@@ -5,7 +5,7 @@ import { GlassButton } from '../../components/ui/GlassButton';
 import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, inspectOptiFrameAcquisition, OPTIFRAME_SIZE, type OptiFrameAcquisitionDiagnostics, type OptiFramePerspectiveDiagnostics } from '../../lib/optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from '../../lib/optiframeStream';
 import { OptiFrameDecodePool } from '../../lib/optiframeDecodePool';
-import { createOptiLaneSurface, cropOptiLaneGrid, type OptiLaneCount } from '../../lib/optiframeLanes';
+import { createOptiFrameCanvasCache, createOptiLaneSurface, cropOptiLaneGrid, type OptiLaneCount } from '../../lib/optiframeLanes';
 import { createOptiCodeFileTransfer, decodeOptiCodeFileTransfer, type OptiCodeFileTransfer } from '../../lib/opticodeTransfer';
 
 type CameraStats = {
@@ -126,6 +126,7 @@ export function OptiFrameLab() {
   const acquisitionTestMetricsRef = useRef(emptyAcquisitionTest());
   const reacquireEveryFrames = 12;
   const receivedFileUrlRef = useRef('');
+  const streamFrameCacheRef = useRef(createOptiFrameCanvasCache(96));
 
   const streamPayload = useMemo(() => {
     const payload = transferData ?? new TextEncoder().encode(text);
@@ -139,6 +140,10 @@ export function OptiFrameLab() {
       if (receivedFileUrlRef.current) URL.revokeObjectURL(receivedFileUrlRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    streamFrameCacheRef.current.clear();
+  }, [streamPayload]);
 
   useEffect(() => {
     setStreamIndex(index => {
@@ -164,7 +169,7 @@ export function OptiFrameLab() {
       const payloads = Array.from({ length: laneCount }, (_, lane) =>
         streamPayload[(streamIndex + lane) % Math.max(1, streamPayload.length)] ?? new Uint8Array(),
       );
-      return createOptiLaneSurface(payloads, streamIndex, Math.max(1, streamPayload.length), laneCount).canvas;
+      return createOptiLaneSurface(payloads, streamIndex, Math.max(1, streamPayload.length), laneCount, streamFrameCacheRef.current).canvas;
     } catch {
       return null;
     }
