@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion, MotionConfig } from 'framer-motion';
 import { AnimatedBackground } from './components/background/AnimatedBackground';
 import { PageLayout } from './components/layout/PageLayout';
 import { ThemeProvider } from './components/providers/ThemeProvider';
@@ -7,6 +7,7 @@ import { AppRouter } from './router/AppRouter';
 export default function App() {
   return (
     <ThemeProvider>
+      <MotionConfig reducedMotion="user" transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}>
       <div className="relative min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)]">
         <AnimatedBackground />
         <div className="pointer-events-none fixed inset-x-0 top-0 z-0 h-40 bg-gradient-to-b from-[var(--bg)]/80 to-transparent" />
@@ -16,6 +17,7 @@ export default function App() {
           </motion.div>
         </PageLayout>
       </div>
+      </MotionConfig>
     </ThemeProvider>
   );
 }
