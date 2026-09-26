@@ -544,3 +544,68 @@ textarea, input, select {
     border-radius: 20px !important;
   }
 }
+
+
+/* Smooth native-app motion: transform/opacity only for low-jank transitions */
+@layer utilities {
+  .motion-smooth {
+    transition:
+      transform 240ms cubic-bezier(.22,1,.36,1),
+      opacity 180ms ease,
+      box-shadow 240ms cubic-bezier(.22,1,.36,1),
+      background-color 240ms ease;
+    will-change: transform, opacity;
+  }
+  .press-smooth {
+    transition: transform 140ms cubic-bezier(.22,1,.36,1), opacity 140ms ease;
+  }
+  .press-smooth:active {
+    transform: scale(.97);
+  }
+}
+@keyframes glassShimmer {
+  0%, 100% { transform: translateX(-115%); opacity: 0; }
+  20% { opacity: .32; }
+  50% { transform: translateX(115%); opacity: .12; }
+  80% { opacity: 0; }
+}
+@keyframes appFloat {
+  0%, 100% { transform: translate3d(0,0,0); }
+  50% { transform: translate3d(0,-5px,0); }
+}
+.glass-panel,
+.glass-soft {
+  transform: translateZ(0);
+}
+@media (hover:hover) and (pointer:fine) {
+  .glass-panel {
+    transition: box-shadow 260ms cubic-bezier(.22,1,.36,1), border-color 220ms ease, transform 260ms cubic-bezier(.22,1,.36,1);
+  }
+  .glass-panel:hover {
+    transform: translateY(-1px) translateZ(0);
+  }
+}
+@media (max-width: 767px) {
+  .mobile-bottom-nav {
+    transform: translateZ(0);
+    will-change: transform;
+  }
+  .mobile-bottom-nav .glass-panel {
+    box-shadow: 0 18px 50px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.08);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .app-shell {
+    animation: appFloat 1ms linear 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-smooth,
+  .press-smooth {
+    transition: none !important;
+  }
+  .glass-panel,
+  .glass-soft {
+    transform: none !important;
+  }
+}
