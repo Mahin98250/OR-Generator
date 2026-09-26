@@ -42,9 +42,10 @@ export function useQRCode(initial?: Partial<QRSettings>) {
       }
     }
 
-    void generate();
+    const timer = window.setTimeout(() => { void generate(); }, 120);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [settings]);
 
