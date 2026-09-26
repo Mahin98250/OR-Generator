@@ -648,15 +648,15 @@ export function optiFrameSelfTest() {
   }
 
   const warped = document.createElement('canvas');
-  warped.width = 360;
-  warped.height = 320;
+  warped.width = 900;
+  warped.height = 780;
   const ctx = warped.getContext('2d');
   if (!ctx) throw new Error('Perspective self-test canvas unavailable.');
   ctx.fillStyle = '#777';
   ctx.fillRect(0, 0, warped.width, warped.height);
-  ctx.setTransform(1, 0.16, -0.08, 1, 70, 60);
+  ctx.setTransform(1, 0.16, -0.08, 1, 150, 120);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(encoded.canvas, 0, 0);
+  ctx.drawImage(encoded.canvas, 0, 0, 768, 768);
   const perspective = decodeOptiFramePerspective(warped);
   if (!perspective || perspective.frame.sequence !== 7 || perspective.frame.total !== 19 || perspective.frame.payload.length !== payload.length || perspective.frame.payload.some((v, i) => v !== payload[i])) {
     throw new Error('OptiFrame perspective self-test failed.');
