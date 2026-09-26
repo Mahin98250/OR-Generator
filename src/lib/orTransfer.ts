@@ -1,7 +1,7 @@
 import { clearSession, countChunks, getChunkIndexes, getChunks, getSession, putChunk, putSession } from './sessionStore';
 
 export const OR_TRANSFER_PREFIX = 'ORX1:';
-export const OR_TRANSFER_CHUNK_CHARS = 2500;
+export const OR_TRANSFER_CHUNK_CHARS = 1500;
 // High-speed optical transfer: each displayed frame can carry multiple independent QR symbols.
 // 2500 characters is below QR version 40-L's 2953-byte ceiling while leaving room for protocol metadata.
 export const OR_TRANSFER_GRID_SIZE = 4;
