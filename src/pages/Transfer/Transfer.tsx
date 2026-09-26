@@ -70,6 +70,7 @@ export function Transfer() {
   const playbackGroupRef=useRef(0);
   const playbackPlanKeyRef=useRef<string | null>(null);
   const playbackFountainRef=useRef(false);
+  const playbackPrefetchRef=useRef<Set<string>>(new Set());
   const qrEncoderRef=useRef<QrEncodePool|null>(null);
   const qrCanvasRef=useRef<HTMLCanvasElement|null>(null);
   const renderCacheRef=useRef<Map<string,{matrices:QrMatrix[];renderMs:number;encodeMs:number}>>(new Map());
@@ -161,8 +162,16 @@ export function Transfer() {
               ? Math.max(1,Math.ceil((plan as FountainPlan).recommended/grid))
               : Math.max(1,Math.ceil((plan as Awaited<ReturnType<typeof createTransfer>>).total/grid));
             const nextGroup=fountainMode ? playbackGroupRef.current : playbackGroupRef.current % totalGroups;
-            const cached=renderCacheRef.current.get(planKey+':'+nextGroup);
-            if(cached) drawQrMatricesToCanvas(qrCanvasRef.current,cached.matrices,1400,18);
+            const cacheKey=planKey+':'+nextGroup;
+            const cached=renderCacheRef.current.get(cacheKey);
+            if(cached) {
+              drawQrMatricesToCanvas(qrCanvasRef.current,cached.matrices,1400,18);
+            } else if(!playbackPrefetchRef.current.has(cacheKey)) {
+              playbackPrefetchRef.current.add(cacheKey);
+              void buildRenderGroup(planKey,plan,nextGroup,fountainMode)
+                .finally(()=>playbackPrefetchRef.current.delete(cacheKey))
+                .catch(()=>{});
+            }
           }
         }
       }
@@ -249,6 +258,7 @@ export function Transfer() {
       ? 'f:'+(fountain as FountainPlan).session
       : 'c:'+(compat as Awaited<ReturnType<typeof createTransfer>>).session;
     playbackPlanKeyRef.current=planKey;
+    playbackPrefetchRef.current.clear();
     playbackFountainRef.current=fountainMode;
     const startGroup=playbackGroupRef.current;
     const groupIndices=[startGroup,startGroup+1,startGroup+2,startGroup+3];
