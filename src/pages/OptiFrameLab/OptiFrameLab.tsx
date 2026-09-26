@@ -368,11 +368,17 @@ export function OptiFrameLab() {
     };
 
     const runWorkerWithBoundedFallback = async (target: ImageData) => {
+      const capacityBefore = decodePoolRef.current.capacity;
       const worker = await runWorker(target);
       if (worker.result) return worker;
-      // Only spend one bounded main-thread attempt after a worker miss/failure.
-      // Normal successful frames remain worker-only, preserving the fast path.
-      const local = runLocal(target);
+
+      // A normal worker decode miss is not a worker failure. Only fall back
+      // when the pool has actually lost capacity (or started with none).
+      // This keeps the main thread off the hot path while still preserving
+      // camera functionality on browsers that cannot keep workers alive.
+      const capacityAfter = decodePoolRef.current.capacity;
+      const workerUnavailable = capacityAfter === 0 || capacityAfter < capacityBefore;
+      const local = workerUnavailable ? runLocal(target) : null;
       return {
         result: local ? { frame: local.frame, diagnostics: local.diagnostics } : null,
         dropped: worker.dropped,
