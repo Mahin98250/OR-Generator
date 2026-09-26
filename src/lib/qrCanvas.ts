@@ -58,6 +58,22 @@ export function drawQrMatricesToCanvas(
 
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, size, size);
+
+  const active = matrices.slice(0, 4);
+  if (active.length === 1) {
+    // A single optical lane should use the full display. Rendering it as one
+    // quadrant makes phone-to-phone transfer unnecessarily difficult.
+    drawMatrixToCanvas(ctx, active[0], gap, gap, size - gap * 2, 10);
+    return;
+  }
+
+  if (active.length === 2) {
+    const cell = Math.floor((size - gap * 3) / 2);
+    drawMatrixToCanvas(ctx, active[0], gap, gap, cell, 10);
+    drawMatrixToCanvas(ctx, active[1], gap * 2 + cell, gap, cell, 10);
+    return;
+  }
+
   const cell = Math.floor((size - gap * 3) / 2);
   const positions = [
     [gap, gap],
@@ -66,7 +82,7 @@ export function drawQrMatricesToCanvas(
     [gap * 2 + cell, gap * 2 + cell],
   ] as const;
 
-  matrices.slice(0, 4).forEach((matrix, i) => {
+  active.forEach((matrix, i) => {
     drawMatrixToCanvas(ctx, matrix, positions[i][0], positions[i][1], cell, 10);
   });
 }
