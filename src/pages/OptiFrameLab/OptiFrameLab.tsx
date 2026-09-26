@@ -819,7 +819,7 @@ export function OptiFrameLab() {
   }
 
   return (
-    <section className="mx-auto max-w-7xl py-8 sm:py-12">
+    <section className="optiframe-page mx-auto max-w-7xl py-8 sm:py-12">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">OptiCode · Optical file transfer MVP</p>
