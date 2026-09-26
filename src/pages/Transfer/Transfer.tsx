@@ -81,6 +81,7 @@ export function Transfer() {
   const renderWindowStatsRef=useRef({started:0,count:0,renderMs:0});
   const fountainDecoderRef=useRef<FountainDecoder|null>(null);
   const fountainMetaRef=useRef<FountainDroplet|null>(null);
+  const compatibilitySessionRef=useRef<string|null>(null);
   const recentRef=useRef<Map<string,number>>(new Map());
   const renderCountRef=useRef(0);
   const renderWindowRef=useRef({started:0,count:0});
@@ -344,7 +345,12 @@ export function Transfer() {
     if(benchmarkTimerRef.current!==null){window.clearTimeout(benchmarkTimerRef.current);benchmarkTimerRef.current=null;}
     setReceiving(false);
   }
-  function resetDecoder(){ fountainDecoderRef.current=null; fountainMetaRef.current=null; recentRef.current.clear(); }
+  function resetDecoder(){
+    fountainDecoderRef.current=null;
+    fountainMetaRef.current=null;
+    compatibilitySessionRef.current=null;
+    recentRef.current.clear();
+  }
 
   async function choose(value?:File){
     if(!value)return;
@@ -410,9 +416,19 @@ export function Transfer() {
     if(!acceptValue(value))return;
     if(isFountainFrame(value)){
       const frame=parseFountainFrame(value); if(!frame)return;
-      if(!fountainDecoderRef.current){
+      const activeMeta=fountainMetaRef.current;
+      const sessionChanged=Boolean(activeMeta && (
+        activeMeta.session !== frame.session ||
+        activeMeta.hash !== frame.hash ||
+        activeMeta.blocks !== frame.blocks ||
+        activeMeta.size !== frame.size
+      ));
+      if(!fountainDecoderRef.current || sessionChanged){
         fountainMetaRef.current=frame;
         fountainDecoderRef.current=createFountainDecoder(frame);
+        solvedRef.current=0;
+        decodedBytesRef.current=0;
+        setProgress(null);
       }
       const d=fountainDecoderRef.current.add(frame);
       if(d.duplicate)duplicateCountRef.current+=1;
@@ -431,6 +447,11 @@ export function Transfer() {
     }
     if(isTransferFrame(value)){
       const frame=parseTransferFrame(value); if(!frame)return;
+      if(compatibilitySessionRef.current && compatibilitySessionRef.current !== frame.session){
+        decodedBytesRef.current=0;
+        setProgress(null);
+      }
+      compatibilitySessionRef.current=frame.session;
       const added=await addTransferFrame(frame);
       if(added.duplicate)duplicateCountRef.current+=1;
       decodedBytesRef.current=Math.min(frame.size,Math.round((added.received/added.total)*frame.size));
