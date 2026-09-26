@@ -7,6 +7,7 @@ import { OR_TRANSFER_GRID_SIZE, addTransferFrame, createTransfer, isTransferFram
 import { createQrMatrices, drawQrMatricesToCanvas } from '../../lib/qrCanvas';
 import { QrEncodePool, type QrEncodeResult } from '../../lib/qrEncodePool';
 import { createFountainDecoder, createFountainTransfer, FOUNTAIN_BLOCK_BYTES, FOUNTAIN_GRID_SIZE, isFountainFrame, parseFountainFrame, type FountainDecoder, type FountainDroplet, type FountainPlan } from '../../lib/fountain';
+import { addMultiImageChunk, isMultiImageQr, reconstructMultiImage } from '../../lib/imageQr';
 import type { QrMatrix } from '../../lib/qrEncodePool';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
@@ -16,7 +17,7 @@ type DetectorCtor = {
 };
 
 type Result = { url:string; name:string; size:number };
-type Progress = { mode:'fountain'|'compatibility'; session:string; name:string; received:number; total:number; duplicates:number };
+type Progress = { mode:'fountain'|'compatibility'|'multi-image'; session:string; name:string; received:number; total:number; duplicates:number };
 type Telemetry = {
   startedAt:number|null;
   renderMs:number;
@@ -99,6 +100,9 @@ export function Transfer() {
   const benchmarkSamplesRef=useRef<BenchmarkSample[]>([]);
   const benchmarkTimerRef=useRef<number|null>(null);
   const wakeLockRef=useRef<WakeLockSentinel|null>(null);
+  const nativeMissRef=useRef(0);
+  const fallbackLoopRef=useRef<number|null>(null);
+  const fallbackActiveRef=useRef(false);
 
   useEffect(()=>{
     try{
@@ -368,6 +372,9 @@ export function Transfer() {
     qrPoolRef.current?.terminate();
     qrPoolRef.current=null;
     if(benchmarkTimerRef.current!==null){window.clearTimeout(benchmarkTimerRef.current);benchmarkTimerRef.current=null;}
+    if(fallbackLoopRef.current!==null){window.clearTimeout(fallbackLoopRef.current);fallbackLoopRef.current=null;}
+    fallbackActiveRef.current=false;
+    nativeMissRef.current=0;
     setReceiving(false);
   }
   function resetDecoder(){
@@ -439,6 +446,22 @@ export function Transfer() {
 
   async function processValue(value:string){
     if(!acceptValue(value))return;
+    if(isMultiImageQr(value)){
+      const added=await addMultiImageChunk(value);
+      if(!added)return;
+      if(added.duplicate)duplicateCountRef.current+=1;
+      setProgress({mode:'multi-image',session:added.id,name:added.name,received:added.received,total:added.total,duplicates:duplicateCountRef.current});
+      if(added.complete){
+        const rebuilt=await reconstructMultiImage(added.id);
+        if(rebuilt){
+          if(benchmarking) await finishBenchmarkRun();
+          setResult({url:rebuilt.url,name:rebuilt.name,size:rebuilt.size});
+          setProgress(null);
+          stopReceive();
+        }
+      }
+      return;
+    }
     if(isFountainFrame(value)){
       const frame=parseFountainFrame(value); if(!frame)return;
       const activeMeta=fountainMetaRef.current;
@@ -495,6 +518,58 @@ export function Transfer() {
     return values.length;
   }
 
+  function startFallbackDecoder(){
+    if(!receivingRef.current || fallbackActiveRef.current || !videoRef.current) return;
+    fallbackActiveRef.current=true;
+    detectorRef.current=null;
+    nativeMissRef.current=0;
+    const canvas=fallbackCanvasRef.current ?? document.createElement('canvas');
+    fallbackCanvasRef.current=canvas;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    if(!ctx){ setError('Camera fallback decoder could not create an image surface.'); stopReceive(); return; }
+    const pool=qrPoolRef.current ?? new QrDecodePool();
+    qrPoolRef.current=pool;
+    const loop=async()=>{
+      if(!receivingRef.current || !fallbackActiveRef.current || !videoRef.current || !qrPoolRef.current) return;
+      const started=performance.now();
+      const video=videoRef.current;
+      const sourceWidth=video.videoWidth;
+      const sourceHeight=video.videoHeight;
+      if(sourceWidth && sourceHeight){
+        const maxDimension=1600;
+        const scale=Math.min(1,maxDimension/Math.max(sourceWidth,sourceHeight));
+        const width=Math.max(1,Math.round(sourceWidth*scale));
+        const height=Math.max(1,Math.round(sourceHeight*scale));
+        if(canvas.width!==width)canvas.width=width;
+        if(canvas.height!==height)canvas.height=height;
+        ctx.imageSmoothingEnabled=false;
+        ctx.drawImage(video,0,0,width,height);
+        const image=ctx.getImageData(0,0,width,height);
+        const job=qrPoolRef.current.decode(image.data.buffer,width,height,scanDelayRef.current>105?1:2);
+        if(job){
+          try{
+            const decoded=await job;
+            await Promise.all(decoded.values.map(value=>processValue(value)));
+            recordBenchmark(decoded.values,decoded.processingMs);
+            const now=performance.now();
+            if(receiverStartedRef.current===null)receiverStartedRef.current=started;
+            if(detectedWindowRef.current.started===0)detectedWindowRef.current.started=now;
+            detectedWindowRef.current.count+=decoded.values.length;
+            const windowMs=now-detectedWindowRef.current.started;
+            if(windowMs>=500){
+              const elapsed=Math.max(.001,(now-(receiverStartedRef.current??now))/1000);
+              setTelemetry(prev=>({...prev,startedAt:receiverStartedRef.current,detectedPerSecond:detectedWindowRef.current.count/(windowMs/1000),solvedPerSecond:solvedRef.current/elapsed,goodputKbps:(decodedBytesRef.current/1024)/elapsed,duplicates:duplicateCountRef.current,decodeMs:prev.decodeMs===0?decoded.processingMs:prev.decodeMs*.7+decoded.processingMs*.3,scanDelayMs:scanDelayRef.current}));
+              detectedWindowRef.current={started:now,count:0};
+            }
+            scanDelayRef.current=decoded.processingMs>75?Math.min(180,Math.max(70,Math.round(decoded.processingMs*.9))):decoded.values.length>0?Math.max(25,scanDelayRef.current-4):Math.min(85,scanDelayRef.current+2);
+          }catch(e){setError(e instanceof Error?e.message:'QR decoder worker failed.');}
+        }
+      }
+      if(receivingRef.current && fallbackActiveRef.current) fallbackLoopRef.current=window.setTimeout(()=>void loop(),scanDelayRef.current);
+    };
+    void loop();
+  }
+
   async function scanLoop(){
     if(!receivingRef.current||!videoRef.current||!detectorRef.current)return;
     const started=performance.now();
@@ -519,18 +594,37 @@ export function Transfer() {
       setTelemetry(prev=>({...prev,startedAt:receiverStartedRef.current,detectedPerSecond,solvedPerSecond,goodputKbps,duplicates:duplicateCountRef.current,decodeMs:prev.decodeMs===0?decodeMs:prev.decodeMs*0.7+decodeMs*0.3,scanDelayMs:scanDelayRef.current}));
       detectedWindowRef.current={started:now,count:0};
     }
+    if(foundCount===0) nativeMissRef.current+=1;
+    else nativeMissRef.current=0;
+    if(nativeMissRef.current>=4){ startFallbackDecoder(); return; }
     if(decodeMs>60)scanDelayRef.current=Math.min(140,Math.max(scanDelayRef.current,Math.round(decodeMs*0.9)));
     else if(foundCount>0)scanDelayRef.current=Math.max(20,scanDelayRef.current-5);
     else scanDelayRef.current=Math.min(80,scanDelayRef.current+2);
-    if(receivingRef.current)window.setTimeout(()=>void scanLoop(),scanDelayRef.current);
+    if(receivingRef.current && !fallbackActiveRef.current)window.setTimeout(()=>void scanLoop(),scanDelayRef.current);
   }
 
   async function startReceive(){
-    setError('');setResult(null);setProgress(null);resetDecoder(); receiverStartedRef.current=null; solvedRef.current=0; duplicateCountRef.current=0; detectedWindowRef.current={started:0,count:0}; scanDelayRef.current=55; setTelemetry(prev=>({...prev,startedAt:null,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,scanDelayMs:55}));
+    setError('');setResult(null);setProgress(null);resetDecoder();
+    receiverStartedRef.current=null;solvedRef.current=0;duplicateCountRef.current=0;
+    detectedWindowRef.current={started:0,count:0};scanDelayRef.current=55;
+    nativeMissRef.current=0;fallbackActiveRef.current=false;
+    setTelemetry(prev=>({...prev,startedAt:null,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,scanDelayMs:55}));
+
     try{
-      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+      const stream=await navigator.mediaDevices.getUserMedia({
+        video:{
+          facingMode:{ideal:'environment'},
+          width:{ideal:1920,max:2560},
+          height:{ideal:1080,max:1440},
+          frameRate:{ideal:30,max:30},
+        },
+        audio:false,
+      });
       streamRef.current=stream;receivingRef.current=true;setReceiving(true);
+      fallbackCanvasRef.current=document.createElement('canvas');
+      try{qrPoolRef.current=new QrDecodePool();}catch{qrPoolRef.current=null;}
       if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
+
       const Ctor=(window as unknown as {BarcodeDetector?:DetectorCtor}).BarcodeDetector;
       let nativeQrReady=false;
       if(Ctor){
@@ -552,51 +646,12 @@ export function Transfer() {
         }
       }
 
-      if(!nativeQrReady){
-        const canvas=document.createElement('canvas'); fallbackCanvasRef.current=canvas;
-        const ctx=canvas.getContext('2d',{willReadFrequently:true});
-        qrPoolRef.current=new QrDecodePool();
-        const loop=async()=>{
-          if(!receivingRef.current||!videoRef.current||!ctx||!qrPoolRef.current)return;
-          const started=performance.now();
-          const video=videoRef.current,w=video.videoWidth,h=video.videoHeight;
-          if(w&&h){
-            canvas.width=w; canvas.height=h;
-            ctx.drawImage(video,0,0,w,h);
-            const image=ctx.getImageData(0,0,w,h);
-            const pool=qrPoolRef.current;
-            const maxDepth=scanDelayRef.current>100?1:2;
-            const job=pool.decode(image.data.buffer,w,h,maxDepth);
-            if(job){
-              try{
-                const decoded=await job;
-                await Promise.all(decoded.values.map(value=>processValue(value)));
-                recordBenchmark(decoded.values,decoded.processingMs);
-                const decodeMs=decoded.processingMs;
-                const now=performance.now();
-                if(receiverStartedRef.current===null)receiverStartedRef.current=started;
-                if(detectedWindowRef.current.started===0)detectedWindowRef.current.started=now;
-                detectedWindowRef.current.count+=decoded.values.length;
-                const windowMs=now-detectedWindowRef.current.started;
-                if(windowMs>=500){
-                  const elapsed=Math.max(.001,(now-(receiverStartedRef.current??now))/1000);
-                  setTelemetry(prev=>({...prev,startedAt:receiverStartedRef.current,detectedPerSecond:detectedWindowRef.current.count/(windowMs/1000),solvedPerSecond:solvedRef.current/elapsed,goodputKbps:(decodedBytesRef.current/1024)/elapsed,duplicates:duplicateCountRef.current,decodeMs:prev.decodeMs===0?decodeMs:prev.decodeMs*.7+decodeMs*.3,scanDelayMs:scanDelayRef.current}));
-                  detectedWindowRef.current={started:now,count:0};
-                }
-                scanDelayRef.current=decodeMs>75?Math.min(180,Math.max(70,Math.round(decodeMs*.9))):decoded.values.length>0?Math.max(25,scanDelayRef.current-4):Math.min(85,scanDelayRef.current+2);
-              }catch(e){setError(e instanceof Error?e.message:'QR decoder worker failed.');}
-            }
-          }
-          if(receivingRef.current)window.setTimeout(()=>void loop(),scanDelayRef.current);
-        };
-        void loop();
-      }
+      if(!nativeQrReady) startFallbackDecoder();
     }catch(e){
       stopReceive();
       setError(e instanceof Error?e.message:'Camera permission was denied.');
     }
   }
-
   return <section className="transfer-page mx-auto max-w-6xl py-8 sm:py-12">
     <Link to="/" className="text-xs font-semibold text-[var(--text-muted)]">Back home</Link>
     <div className="mt-5 overflow-hidden rounded-[32px] border border-cyan-300/15 bg-[var(--bg-elevated)] p-6 shadow-glass backdrop-blur-2xl sm:p-9">
@@ -639,7 +694,7 @@ export function Transfer() {
           <div className="rounded-2xl bg-white/5 p-3"><TimerReset size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Detector</p><p className="mt-1 text-sm font-black">{telemetry.decodeMs.toFixed(0)} ms</p></div>
           <div className="rounded-2xl bg-white/5 p-3"><Gauge size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Scan cadence</p><p className="mt-1 text-sm font-black">{Math.round(telemetry.scanDelayMs)} ms</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{telemetry.duplicates} duplicates</p></div>
         </div>
-        {benchmark&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-[.14em] text-cyan-200">Physical 1 MB benchmark</p><span className="text-[10px] text-[var(--text-muted)]">{(benchmark.durationMs/1000).toFixed(1)} s</span></div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><div><p className="text-[10px] text-[var(--text-muted)]">Sustained</p><p className="text-sm font-black">{benchmark.goodputKbps.toFixed(1)} KB/s</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Peak ≥1s</p><p className="text-sm font-black">{benchmark.peakGoodputKbps.toFixed(1)} KB/s</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Codes/sec</p><p className="text-sm font-black">{benchmark.sustainedDecodeRate.toFixed(1)} / {benchmark.peakDecodeRate.toFixed(1)}</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Unique codes</p><p className="text-sm font-black">{benchmark.uniqueCodes}</p></div></div><div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-xl bg-white/5 p-3"><p className="text-[10px] text-[var(--text-muted)]">Decimen desktop→phone reference</p><p className="mt-1 text-xs font-bold">418.5 KB/s sustained · 601.5 KB/s peak</p></div><div className="rounded-xl bg-white/5 p-3"><p className="text-[10px] text-[var(--text-muted)]">Decimen phone→phone reference</p><p className="mt-1 text-xs font-bold">199.2 KB/s sustained · 340.8 KB/s peak</p></div></div><p className="mt-3 text-[10px] leading-5 text-[var(--text-muted)]">Run this on the actual device pair. The result is a measurement, not a simulated claim. To establish a “better than Decimen” result, repeat the same 1 MB, 10-second methodology on a comparable device pair and compare sustained and ≥1-second peak goodput.</p></div>}{progress&&<div className="mt-5 rounded-2xl bg-white/5 p-4"><p className="truncate text-sm font-bold">{progress.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{progress.mode==='fountain'?`${progress.received.toLocaleString()} unique droplets · ${progress.total.toLocaleString()} source blocks`:`${progress.received} / ${progress.total} frames`}</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100,Math.round(progress.received/progress.total*100))}%`}}/></div></div>}{result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><CheckCircle2 className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}{error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}</div>
+        {benchmark&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-[.14em] text-cyan-200">Physical 1 MB benchmark</p><span className="text-[10px] text-[var(--text-muted)]">{(benchmark.durationMs/1000).toFixed(1)} s</span></div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><div><p className="text-[10px] text-[var(--text-muted)]">Sustained</p><p className="text-sm font-black">{benchmark.goodputKbps.toFixed(1)} KB/s</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Peak ≥1s</p><p className="text-sm font-black">{benchmark.peakGoodputKbps.toFixed(1)} KB/s</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Codes/sec</p><p className="text-sm font-black">{benchmark.sustainedDecodeRate.toFixed(1)} / {benchmark.peakDecodeRate.toFixed(1)}</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Unique codes</p><p className="text-sm font-black">{benchmark.uniqueCodes}</p></div></div><div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-xl bg-white/5 p-3"><p className="text-[10px] text-[var(--text-muted)]">Decimen desktop→phone reference</p><p className="mt-1 text-xs font-bold">418.5 KB/s sustained · 601.5 KB/s peak</p></div><div className="rounded-xl bg-white/5 p-3"><p className="text-[10px] text-[var(--text-muted)]">Decimen phone→phone reference</p><p className="mt-1 text-xs font-bold">199.2 KB/s sustained · 340.8 KB/s peak</p></div></div><p className="mt-3 text-[10px] leading-5 text-[var(--text-muted)]">Run this on the actual device pair. The result is a measurement, not a simulated claim. To establish a “better than Decimen” result, repeat the same 1 MB, 10-second methodology on a comparable device pair and compare sustained and ≥1-second peak goodput.</p></div>}{progress&&<div className="mt-5 rounded-2xl bg-white/5 p-4"><p className="truncate text-sm font-bold">{progress.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{progress.mode==='fountain'?`${progress.received.toLocaleString()} unique droplets · ${progress.total.toLocaleString()} source blocks`:progress.mode==='multi-image'?`${progress.received} / ${progress.total} image frames`:`${progress.received} / ${progress.total} frames`}</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100,Math.round(progress.received/progress.total*100))}%`}}/></div></div>}{result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><CheckCircle2 className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}{error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}</div>
     </div>}
     <div className="mt-5 grid gap-3 md:grid-cols-3">{[['01','Encode','The file becomes source blocks and optical droplets.'],['02','Stream','The sender uses 1/2/4 lanes depending on physical display size.'],['03','Recover','Missing frames are tolerated and SHA-256 verifies the result.']].map(([n,t,d])=><div key={n} className="glass-panel rounded-[24px] p-5"><span className="text-xs font-black text-cyan-300">{n}</span><h2 className="mt-2 font-bold">{t}</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{d}</p></div>)}</div>
   </section>;
