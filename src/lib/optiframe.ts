@@ -450,6 +450,17 @@ function searchFinderNear(image: ImageData, previous: OptiFrameAnchor) {
   const scaleStep = Math.max(0.35, previous.scale * 0.08);
   const angleRadius = Math.max(3, Math.min(12, Math.abs(previous.angle) + 3));
   const candidates: Array<{ x: number; y: number; score: number; scale: number; angle: number }> = [];
+  const retain = (candidate: { x: number; y: number; score: number; scale: number; angle: number }) => {
+    if (candidates.length < 4) {
+      candidates.push(candidate);
+      return;
+    }
+    let weakest = 0;
+    for (let index = 1; index < candidates.length; index += 1) {
+      if (candidates[index].score < candidates[weakest].score) weakest = index;
+    }
+    if (candidate.score > candidates[weakest].score) candidates[weakest] = candidate;
+  };
 
   for (let angle = previous.angle - angleRadius; angle <= previous.angle + angleRadius; angle += 2) {
     for (let scale = Math.max(0.75, previous.scale - scaleRadius); scale <= previous.scale + scaleRadius; scale += scaleStep) {
@@ -651,7 +662,7 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
       searchFinderNear(image, anchor),
     );
     if (tracked.every(Boolean)) {
-      const anchors = tracked as PerspectiveAnchorSet;
+      const anchors: PerspectiveAnchorSet = [tracked[0]!, tracked[1]!, tracked[2]!, tracked[3]!];
       const frame = decodePerspectiveFromAnchors(image, anchors);
       if (frame) {
         lastPerspectiveAnchors = anchors;
@@ -678,7 +689,7 @@ export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData
     return null;
   }
 
-  const anchors = [tl, tr, bl, br] as const;
+  const anchors: PerspectiveAnchorSet = [tl, tr, bl, br];
   const frame = decodePerspectiveFromAnchors(image, anchors);
   if (!frame) {
     lastPerspectiveAnchors = null;
