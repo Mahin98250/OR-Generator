@@ -56,6 +56,7 @@ export function Transfer() {
   const [benchmarking,setBenchmarking]=useState(false);
   const [benchmark,setBenchmark]=useState<OpticalBenchmark|null>(null);
   const [telemetry,setTelemetry]=useState<Telemetry>({startedAt:null,renderMs:0,encodeMs:0,prefetchReady:0,encoderWorkers:0,renderCount:0,renderFps:0,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,decodeMs:0,scanDelayMs:55});
+  const [screenAwake,setScreenAwake]=useState(false);
   const inputRef=useRef<HTMLInputElement>(null);
   const videoRef=useRef<HTMLVideoElement>(null);
   const streamRef=useRef<MediaStream|null>(null);
@@ -89,6 +90,7 @@ export function Transfer() {
   const benchmarkDecodeSamplesRef=useRef<number[]>([]);
   const benchmarkSamplesRef=useRef<BenchmarkSample[]>([]);
   const benchmarkTimerRef=useRef<number|null>(null);
+  const wakeLockRef=useRef<WakeLockSentinel|null>(null);
 
   useEffect(()=>{
     try{
@@ -103,7 +105,36 @@ export function Transfer() {
     };
   },[]);
 
-  useEffect(()=>()=>{ stopReceive(); stopPlayback(); if(result?.url) URL.revokeObjectURL(result.url); },[result]);
+  useEffect(()=>()=>{ stopReceive(); stopPlayback(); if(result?.url) URL.revokeObjectURL(result.url); void wakeLockRef.current?.release().catch(()=>{}); wakeLockRef.current=null; },[result]);
+
+  async function setScreenWakeLock(active:boolean){
+    if(!active){
+      if(wakeLockRef.current){
+        await wakeLockRef.current.release().catch(()=>{});
+        wakeLockRef.current=null;
+      }
+      setScreenAwake(false);
+      return;
+    }
+    if(!('wakeLock' in navigator)) return;
+    try{
+      if(!wakeLockRef.current || wakeLockRef.current.released){
+        wakeLockRef.current=await navigator.wakeLock.request('screen');
+        wakeLockRef.current.addEventListener('release',()=>setScreenAwake(false),{once:true});
+      }
+      setScreenAwake(true);
+    }catch{
+      setScreenAwake(false);
+    }
+  }
+
+  useEffect(()=>{
+    if(!playing) return;
+    void setScreenWakeLock(true);
+    const onVisibility=()=>{ if(document.visibilityState==='visible' && playing) void setScreenWakeLock(true); };
+    document.addEventListener('visibilitychange',onVisibility);
+    return()=>document.removeEventListener('visibilitychange',onVisibility);
+  },[playing]);
 
   useEffect(()=>{
     if(!playing) return;
@@ -253,6 +284,7 @@ export function Transfer() {
 
   function stopPlayback(){
     setPlaying(false);
+    void setScreenWakeLock(false);
     if(timerRef.current!==null){
       window.clearInterval(timerRef.current);
       timerRef.current=null;
@@ -464,7 +496,7 @@ export function Transfer() {
     <div className="mt-5 overflow-hidden rounded-[32px] border border-cyan-300/15 bg-[var(--bg-elevated)] p-6 shadow-glass backdrop-blur-2xl sm:p-9">
       <div className="flex flex-wrap gap-2"><span className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[.18em] text-cyan-200"><Radio size={14}/> OptiTransfer 2.0</span><span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300"><WifiOff size={14}/> Offline optical</span></div>
       <h1 className="mt-5 text-4xl font-black tracking-[-.045em] sm:text-6xl">Fast file transfer <span className="text-gradient">without internet.</span></h1>
-      <p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--text-muted)] sm:text-base">Adaptive 1/2/4 optical lanes + fountain recovery. Dropped, duplicated and out-of-order QR frames are expected; the receiver reconstructs the original bytes and verifies SHA-256.</p>
+      <p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--text-muted)] sm:text-base">Adaptive 1/2/4 optical lanes + fountain recovery. Dropped, duplicated and out-of-order frames are expected; the receiver reconstructs the original bytes and verifies SHA-256. On supported phones, the sender keeps the screen awake while streaming.</p>
     </div>
 
     <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1">
