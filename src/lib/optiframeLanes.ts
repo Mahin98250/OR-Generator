@@ -16,11 +16,49 @@ export function getOptiLaneSequence(baseSequence: number, lane: number, total: n
   return total > 0 ? sequence % total : sequence;
 }
 
+export type OptiFrameCanvasCache = {
+  get(payload: Uint8Array, sequence: number, total: number): HTMLCanvasElement;
+  clear(): void;
+  size(): number;
+};
+
+export function createOptiFrameCanvasCache(maxEntries = 96): OptiFrameCanvasCache {
+  const limit = Math.max(1, Math.floor(maxEntries));
+  const entries = new Map<number, HTMLCanvasElement>();
+
+  return {
+    get(payload, sequence, total) {
+      const cached = entries.get(sequence);
+      if (cached) {
+        entries.delete(sequence);
+        entries.set(sequence, cached);
+        return cached;
+      }
+
+      const encoded = encodeOptiFrame(payload, sequence, total);
+      entries.set(sequence, encoded.canvas);
+      while (entries.size > limit) {
+        const oldest = entries.keys().next().value as number | undefined;
+        if (oldest === undefined) break;
+        entries.delete(oldest);
+      }
+      return encoded.canvas;
+    },
+    clear() {
+      entries.clear();
+    },
+    size() {
+      return entries.size;
+    },
+  };
+}
+
 export function createOptiLaneSurface(
   payloads: readonly Uint8Array[],
   baseSequence: number,
   total: number,
   laneCount: OptiLaneCount,
+  frameCache?: OptiFrameCanvasCache,
 ) {
   if (payloads.length !== laneCount) {
     throw new Error(`Expected ${laneCount} lane payloads.`);
@@ -44,12 +82,19 @@ export function createOptiLaneSurface(
   const frames: OptiFrame[] = [];
   for (let lane = 0; lane < laneCount; lane += 1) {
     const sequence = getOptiLaneSequence(baseSequence, lane, total);
-    const encoded = encodeOptiFrame(payloads[lane], sequence, total);
-    frames.push(encoded.frame);
+    const canvas = frameCache
+      ? frameCache.get(payloads[lane], sequence, total)
+      : encodeOptiFrame(payloads[lane], sequence, total).canvas;
+    frames.push({
+      version: 1,
+      sequence,
+      total,
+      payload: payloads[lane],
+    });
     const x = (lane % layout.columns) * laneRenderSize;
     const y = Math.floor(lane / layout.columns) * laneRenderSize;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(encoded.canvas, x, y, laneRenderSize, laneRenderSize);
+    ctx.drawImage(canvas, x, y, laneRenderSize, laneRenderSize);
   }
 
   return { canvas, frames, layout };
