@@ -173,6 +173,9 @@ function toImageData(source: CanvasImageSource | ImageData) {
   canvas.height = height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
+  // Optical symbols are intentionally hard-edged. Nearest-neighbour rasterization
+  // avoids introducing blended gray values while resizing camera frames.
+  ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, 0, 0, width, height);
   return ctx.getImageData(0, 0, width, height);
 }
@@ -221,6 +224,8 @@ export function decodeOptiFrame(source: CanvasImageSource | ImageData) {
   canvas.height = OPTIFRAME_SIZE;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
+  // Preserve the four discrete luminance levels when decoding a scaled image.
+  ctx.imageSmoothingEnabled = false;
 
   if (source instanceof ImageData) {
     if (source.width !== OPTIFRAME_SIZE || source.height !== OPTIFRAME_SIZE) return null;
