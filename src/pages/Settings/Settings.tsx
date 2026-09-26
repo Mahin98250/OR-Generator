@@ -39,7 +39,7 @@ export function Settings() {
   }
 
   return (
-    <section className="mx-auto max-w-4xl py-8 sm:py-10">
+    <section className="settings-page mx-auto max-w-4xl py-8 sm:py-10">
       <div className="mb-7">
         <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-5xl">Settings</h1>
         <p className="mt-3 text-sm leading-7 text-[var(--text-muted)] sm:text-base">Privacy-first controls for your QR and barcode studio.</p>
