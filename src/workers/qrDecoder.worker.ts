@@ -17,26 +17,16 @@ type DecodeResult = {
 
 const keyFor=(value:string)=>value.length>180?value.slice(0,180):value;
 
-function scanRegion(data:Uint8ClampedArray,sourceWidth:number,sourceHeight:number,x:number,y:number,width:number,height:number){
-  const clippedWidth=Math.max(1,Math.min(width,sourceWidth-x));
-  const clippedHeight=Math.max(1,Math.min(height,sourceHeight-y));
-  const region=new Uint8ClampedArray(clippedWidth*clippedHeight*4);
-  for(let row=0;row<clippedHeight;row+=1){
-    const from=((y+row)*sourceWidth+x)*4;
-    region.set(data.subarray(from,from+clippedWidth*4),row*clippedWidth*4);
-  }
-  return {region,width:clippedWidth,height:clippedHeight};
-}
-
 function decode(request:DecodeRequest):DecodeResult{
   const started=performance.now();
   const values:string[]=[];
   const localSeen=new Set<string>();
   let regionsScanned=0;
   const data=new Uint8ClampedArray(request.buffer);
-  // Keep the real-time path bounded. A 2x2 optical layout only needs the
-  // full frame plus four overlapping quadrants; the old 4x4 pass multiplied
-  // expensive jsQR work without adding useful coverage for our 1/2/4-lane UI.
+
+  // The realtime fallback is deliberately bounded to one refinement level:
+  // full frame + four overlapping quadrants. This covers the 1/2/4-lane
+  // sender layouts without the old 4x4 (16-region) explosion.
   const maxDepth=Math.max(1,Math.min(1,request.maxDepth??1));
 
   const add=(value?:string)=>{
@@ -47,26 +37,49 @@ function decode(request:DecodeRequest):DecodeResult{
     values.push(value);
   };
 
-  const inspect=(x:number,y:number,w:number,h:number)=>{
+  // Reuse one worker-local scratch buffer for cropped regions. The previous
+  // implementation allocated a fresh Uint8ClampedArray for every region,
+  // creating avoidable GC pressure during long camera sessions.
+  let scratch=new Uint8ClampedArray(0);
+
+  const inspect=(x:number,y:number,width:number,height:number)=>{
+    const clippedWidth=Math.max(1,Math.min(width,request.width-x));
+    const clippedHeight=Math.max(1,Math.min(height,request.height-y));
     regionsScanned+=1;
-    const {region,width,height}=scanRegion(data,request.width,request.height,x,y,w,h);
-    if(width<120||height<120)return;
+
     try{
-      // OptiCode always renders black modules on a white background. Avoid
-      // jsQR's inverse-image pass; its own documentation notes that
-      // `attemptBoth` costs roughly 50% extra decode work.
-      add(jsQR(region,width,height,{inversionAttempts:'dontInvert',canOverwriteImage:true})?.data);
-    }catch{}
+      // The full-frame region is already contiguous. Do not copy the entire
+      // camera frame just to pass it to jsQR.
+      if(x===0 && y===0 && clippedWidth===request.width && clippedHeight===request.height){
+        // OptiCode renders black modules on white. jsQR documents that
+        // attemptBoth costs roughly 50% extra work, so stay on dontInvert.
+        add(jsQR(data,request.width,request.height,{inversionAttempts:'dontInvert'})?.data);
+        return;
+      }
+
+      const required=clippedWidth*clippedHeight*4;
+      if(scratch.length<required)scratch=new Uint8ClampedArray(required);
+
+      for(let row=0;row<clippedHeight;row+=1){
+        const from=((y+row)*request.width+x)*4;
+        scratch.set(data.subarray(from,from+clippedWidth*4),row*clippedWidth*4);
+      }
+
+      add(jsQR(scratch.subarray(0,required),clippedWidth,clippedHeight,{inversionAttempts:'dontInvert'})?.data);
+    }catch{
+      // A single bad region must never kill the camera loop.
+    }
   };
 
-  // Whole-frame pass plus one overlapping 2x2 pass. Four quadrants map
-  // directly to the sender's maximum four-lane layout, while the full-frame
-  // pass keeps the one-lane case robust.
   inspect(0,0,request.width,request.height);
-  const grids=maxDepth>=1?[2]:[];
-  for(const grid of grids){
-    const stepX=request.width/grid,stepY=request.height/grid;
-    const overlapX=Math.floor(stepX*.16),overlapY=Math.floor(stepY*.16);
+
+  if(maxDepth>=1){
+    const grid=2;
+    const stepX=request.width/grid;
+    const stepY=request.height/grid;
+    const overlapX=Math.floor(stepX*.16);
+    const overlapY=Math.floor(stepY*.16);
+
     for(let row=0;row<grid;row+=1){
       for(let col=0;col<grid;col+=1){
         const x=Math.max(0,Math.floor(col*stepX-overlapX));
@@ -77,10 +90,20 @@ function decode(request:DecodeRequest):DecodeResult{
       }
     }
   }
-  return {id:request.id,values,regionsScanned,processingMs:performance.now()-started};
+
+  return {
+    id:request.id,
+    values,
+    regionsScanned,
+    processingMs:performance.now()-started,
+  };
 }
 
-type WorkerScope={onmessage:(event:MessageEvent<DecodeRequest>)=>void;postMessage:(message:DecodeResult)=>void};
+type WorkerScope={
+  onmessage:(event:MessageEvent<DecodeRequest>)=>void;
+  postMessage:(message:DecodeResult)=>void;
+};
+
 const scope=self as unknown as WorkerScope;
 scope.onmessage=(event)=>{
   try{scope.postMessage(decode(event.data));}
