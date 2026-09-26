@@ -349,7 +349,7 @@ function searchFinder(image: ImageData, corner: Corner) {
   // 6 px/module, while minDim/128 is 15 px/module. Searching from 0.5× that
   // estimate therefore excluded a valid physical frame.
   const expectedScale = minDim / OPTIFRAME_SIZE;
-  const minScale = Math.max(1.5, expectedScale * 0.22);
+  const minScale = Math.max(0.75, expectedScale * 0.22);
   const maxScale = Math.min(24, Math.max(minScale + 2, expectedScale * 2.2));
   const scaleStep = Math.max(0.75, expectedScale * 0.08);
   // Keep the spatial scan fine enough for small physical frames.
