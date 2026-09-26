@@ -888,7 +888,7 @@ export function OptiFrameLab() {
               <canvas
                 ref={streamCanvasRef}
                 aria-label="OptiFrame optical stream surface"
-                className={`block h-auto w-full max-w-[760px] ${laneCount === 2 ? 'aspect-[2/1]' : 'aspect-square'}`}
+                className={`optiframe-surface block h-auto w-full max-w-[760px] ${laneCount === 2 ? 'aspect-[2/1]' : 'aspect-square'}`}
               />
             ) : <div className={laneCount === 2 ? 'aspect-[2/1] w-full max-w-[760px]' : 'aspect-square w-full max-w-[760px]'} />}
           </div>
@@ -944,7 +944,7 @@ export function OptiFrameLab() {
             </div>
             <button onClick={() => void (cameraOn ? stopCamera() : startCamera())} className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-950">{cameraOn ? <CameraOff size={14}/> : <Camera size={14}/>} {cameraOn ? 'Stop camera' : 'Start camera'}</button>
           </div>
-          <div className="mt-4 overflow-hidden rounded-[26px] bg-black">
+          <div className="optiframe-camera mt-4 overflow-hidden rounded-[26px] bg-black">
             <div className="relative min-h-[460px] aspect-video sm:min-h-[560px] lg:min-h-[620px]">
               <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
               {!cameraOn && <div className="absolute inset-0 grid place-items-center bg-black/55"><div className="text-center"><ScanLine size={28} className="mx-auto text-white/70"/><p className="mt-3 text-sm font-bold text-white">Point the camera at an OptiFrame</p><p className="mt-1 text-xs text-white/50">Keep all four finder anchors visible.</p></div></div>}
@@ -1001,7 +1001,7 @@ export function OptiFrameLab() {
             <p className="mt-3 text-[10px] leading-5 text-[var(--text-muted)]">Last stage: {acquisitionTest.lastStage.toUpperCase()} · The test forces 1× mode and pauses the sender so every sample sees the same optical frame.</p>
           </div>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+          <div className="optiframe-metrics mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Attempts</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.attempts}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Decoded</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.hits}</p></div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-3"><p className="text-[10px] text-[var(--text-muted)]">Dropped</p><p className="mt-1 text-lg font-black text-[var(--text)]">{cameraStats.dropped}</p></div>
