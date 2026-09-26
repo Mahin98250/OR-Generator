@@ -101,6 +101,7 @@ export function Transfer() {
   const benchmarkTimerRef=useRef<number|null>(null);
   const wakeLockRef=useRef<WakeLockSentinel|null>(null);
   const nativeMissRef=useRef(0);
+  const nativeSlowRef=useRef(0);
   const fallbackLoopRef=useRef<number|null>(null);
   const fallbackActiveRef=useRef(false);
 
@@ -375,6 +376,7 @@ export function Transfer() {
     if(fallbackLoopRef.current!==null){window.clearTimeout(fallbackLoopRef.current);fallbackLoopRef.current=null;}
     fallbackActiveRef.current=false;
     nativeMissRef.current=0;
+    nativeSlowRef.current=0;
     setReceiving(false);
   }
   function resetDecoder(){
@@ -536,7 +538,7 @@ export function Transfer() {
       const sourceWidth=video.videoWidth;
       const sourceHeight=video.videoHeight;
       if(sourceWidth && sourceHeight){
-        const maxDimension=1600;
+        const maxDimension=1280;
         const scale=Math.min(1,maxDimension/Math.max(sourceWidth,sourceHeight));
         const width=Math.max(1,Math.round(sourceWidth*scale));
         const height=Math.max(1,Math.round(sourceHeight*scale));
@@ -545,7 +547,8 @@ export function Transfer() {
         ctx.imageSmoothingEnabled=false;
         ctx.drawImage(video,0,0,width,height);
         const image=ctx.getImageData(0,0,width,height);
-        const job=qrPoolRef.current.decode(image.data.buffer,width,height,scanDelayRef.current>105?1:2);
+        // Keep the camera loop on the bounded full-frame + 2x2 worker path.
+        const job=qrPoolRef.current.decode(image.data.buffer,width,height,1);
         if(job){
           try{
             const decoded=await job;
@@ -576,9 +579,18 @@ export function Transfer() {
     let foundCount=0;
     try{
       const found=await detectorRef.current.detect(videoRef.current);
+      const detectorMs=performance.now()-started;
       foundCount=found.length;
-      await consumeDetected(found,performance.now()-started);
-    }catch{}
+      if(detectorMs>450) nativeSlowRef.current+=1;
+      else nativeSlowRef.current=0;
+      // BarcodeDetector is a progressive enhancement. If this browser takes
+      // too long on a real QR, switch immediately to our bounded worker path.
+      if(nativeSlowRef.current>=1){ startFallbackDecoder(); return; }
+      await consumeDetected(found,detectorMs);
+    }catch{
+      startFallbackDecoder();
+      return;
+    }
     const decodeMs=performance.now()-started;
     const now=performance.now();
     if(receiverStartedRef.current===null)receiverStartedRef.current=started;
@@ -607,7 +619,7 @@ export function Transfer() {
     setError('');setResult(null);setProgress(null);resetDecoder();
     receiverStartedRef.current=null;solvedRef.current=0;duplicateCountRef.current=0;
     detectedWindowRef.current={started:0,count:0};scanDelayRef.current=55;
-    nativeMissRef.current=0;fallbackActiveRef.current=false;
+    nativeMissRef.current=0;nativeSlowRef.current=0;fallbackActiveRef.current=false;
     setTelemetry(prev=>({...prev,startedAt:null,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,scanDelayMs:55}));
 
     try{
