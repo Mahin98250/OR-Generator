@@ -49,7 +49,7 @@ export function Transfer() {
   const [compat,setCompat]=useState<Awaited<ReturnType<typeof createTransfer>>|null>(null);
   const [group,setGroup]=useState(0);
   const [playing,setPlaying]=useState(false);
-  const [intervalMs,setIntervalMs]=useState(32);
+  const [intervalMs,setIntervalMs]=useState(80);
   const [error,setError]=useState('');
   const [receiving,setReceiving]=useState(false);
   const [progress,setProgress]=useState<Progress|null>(null);
@@ -320,6 +320,31 @@ export function Transfer() {
     for(const index of groupIndices.slice(1)) void loadGroup(index,false);
     return()=>{cancelled=true;};
   },[fountain,compat,autoTune,intervalMs,playing]);
+
+  async function startPlayback(){
+    const plan=fountain ?? compat;
+    if(!plan) return;
+
+    setError('');
+    playbackGroupRef.current=0;
+    const fountainMode=Boolean(fountain);
+    const planKey=fountainMode
+      ? 'f:'+(fountain as FountainPlan).session
+      : 'c:'+(compat as Awaited<ReturnType<typeof createTransfer>>).session;
+
+    playbackPlanKeyRef.current=planKey;
+    playbackFountainRef.current=fountainMode;
+    playbackPrefetchRef.current.clear();
+
+    try{
+      const entry=await buildRenderGroup(planKey,plan,0,fountainMode);
+      if(playbackPlanKeyRef.current!==planKey) return;
+      if(qrCanvasRef.current) drawQrMatricesToCanvas(qrCanvasRef.current,entry.matrices,1400,18);
+      setPlaying(true);
+    }catch(error){
+      setError(error instanceof Error?error.message:'Unable to start the optical stream.');
+    }
+  }
 
   function stopPlayback(){
     setPlaying(false);
@@ -601,7 +626,7 @@ export function Transfer() {
         </div>
       </div>
       <div className="glass-panel rounded-[28px] p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">Live optical stream</p><p className="mt-1 text-sm text-[var(--text-muted)]">{fountain?'Fountain droplets · systematic + random recovery lanes':compat?'Sequential compatibility stream':'Choose a file to begin'}</p></div>{(fountain||compat)&&<button onClick={()=>setPlaying(v=>!v)} className="rounded-full bg-white px-4 py-2 text-xs font-black text-slate-950">{playing?'Pause':'Start stream'}</button>}</div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">Live optical stream</p><p className="mt-1 text-sm text-[var(--text-muted)]">{fountain?'Fountain droplets · systematic + random recovery lanes':compat?'Sequential compatibility stream':'Choose a file to begin'}</p></div>{(fountain||compat)&&<button onClick={()=>{if(playing)stopPlayback();else void startPlayback();}} className="rounded-full bg-white px-4 py-2 text-xs font-black text-slate-950">{playing?'Pause':'Start stream'}</button>}</div>
         {(fountain||compat)?<canvas ref={qrCanvasRef} width={900} height={900} aria-label="OptiTransfer QR stream" className="transfer-canvas mx-auto mt-5 aspect-square w-full max-w-[760px] min-h-[min(72vh,760px)] rounded-2xl bg-white p-1 sm:p-2"/>:<div className="mt-5 grid aspect-square place-items-center rounded-2xl bg-black/20 text-sm text-[var(--text-muted)]">QR stream preview</div>}
         {(fountain||compat)&&<div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Auto tune<select value={autoTune?'on':'off'} onChange={e=>setAutoTune(e.target.value==='on')} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="on">On · render-safe</option><option value="off">Off · manual</option></select></label><label className="rounded-xl bg-white/5 p-3 text-xs font-bold">Speed<select value={intervalMs} onChange={e=>setIntervalMs(Number(e.target.value))} className="mt-2 w-full rounded-lg bg-black/20 p-2 text-xs"><option value="16">16 ms · 60 Hz extreme</option><option value="24">24 ms · ultra</option><option value="32">32 ms · high</option><option value="60">60 ms · fast</option><option value="80">80 ms · very fast</option><option value="100">100 ms · balanced</option><option value="150">150 ms · safe</option><option value="250">250 ms · compatibility</option></select></label><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Engine</b><p className="mt-1 text-[var(--text-muted)]">{telemetry.encoderWorkers>0?telemetry.encoderWorkers+' worker encoder':'main-thread fallback'} · {telemetry.prefetchReady}/6 groups ready</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Render</b><p className="mt-1 text-[var(--text-muted)]">{telemetry.renderMs.toFixed(1)} ms · QR encode {telemetry.encodeMs.toFixed(1)} ms</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Payload</b><p className="mt-1 text-[var(--text-muted)]">{fountain?FOUNTAIN_BLOCK_BYTES+' bytes/block':'1125 raw bytes/frame'}</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Display lanes</b><p className="mt-1 text-[var(--text-muted)]">{getDisplayLaneCount()} QR code{getDisplayLaneCount() === 1 ? "" : "s"} · adaptive to screen size</p></div><div className="rounded-xl bg-white/5 p-3 text-xs"><b>Recovery</b><p className="mt-1 text-[var(--text-muted)]">{fountain?'Fountain':'Sequential'}</p></div></div>}
