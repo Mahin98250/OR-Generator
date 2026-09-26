@@ -362,17 +362,6 @@ function searchFinder(image: ImageData, corner: Corner) {
 
   const scan = (angles: readonly number[]) => {
     const candidates: Array<{ x: number; y: number; score: number; scale: number; angle: number }> = [];
-  const retain = (candidate: { x: number; y: number; score: number; scale: number; angle: number }) => {
-    if (candidates.length < 4) {
-      candidates.push(candidate);
-      return;
-    }
-    let weakest = 0;
-    for (let index = 1; index < candidates.length; index += 1) {
-      if (candidates[index].score < candidates[weakest].score) weakest = index;
-    }
-    if (candidate.score > candidates[weakest].score) candidates[weakest] = candidate;
-  };
     const retain = (candidate: { x: number; y: number; score: number; scale: number; angle: number }) => {
       // Keep only the six strongest candidates without sorting the whole list
       // for every hit. Finder acquisition runs across thousands of positions,
