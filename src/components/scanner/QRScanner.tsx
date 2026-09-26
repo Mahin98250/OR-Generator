@@ -163,7 +163,7 @@ export function QRScanner() {
     return true;
   }
 
-  async function startZXing(video: HTMLVideoElement) {
+  async function startZXing(video: HTMLVideoElement, nextMode: ScanMode = mode) {
     try {
       const reader = new BrowserMultiFormatReader();
       zxingRef.current = reader;
@@ -173,7 +173,7 @@ export function QRScanner() {
         if (decoded?.getText()) {
           const value = decoded.getText().trim();
           const detectedFormat = normalizeFormat(decoded.getBarcodeFormat()?.toString());
-          if (!isFormatAllowed(detectedFormat)) return;
+          if (!isFormatAllowed(detectedFormat, nextMode)) return;
 
           void handleDecoded(value, detectedFormat);
           if (!isMultiImageQr(value)) stopAfterDecode = true;
@@ -194,7 +194,7 @@ export function QRScanner() {
     }
   }
 
-  async function startCamera(nextFacing = facingMode) {
+  async function startCamera(nextFacing = facingMode, nextMode: ScanMode = mode) {
     setError('');
     setResult('');
     setAnalysis(null);
@@ -246,12 +246,12 @@ export function QRScanner() {
       setFacingMode(nextFacing);
       setScanning(true);
 
-      const nativeReady = await createNativeDetector(mode);
+      const nativeReady = await createNativeDetector(nextMode);
 
       if (nativeReady) {
         scanFrame();
       } else if (videoRef.current) {
-        await startZXing(videoRef.current);
+        await startZXing(videoRef.current, nextMode);
       }
     } catch (cameraError) {
       const name = cameraError instanceof DOMException ? cameraError.name : '';
@@ -521,7 +521,7 @@ export function QRScanner() {
 
   function changeMode(nextMode: ScanMode) {
     setMode(nextMode);
-    if (scanning) void startCamera(facingMode);
+    if (scanning) void startCamera(facingMode, nextMode);
   }
 
   return (
