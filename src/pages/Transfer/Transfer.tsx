@@ -147,7 +147,6 @@ export function Transfer() {
     const tick=(now:number)=>{
       if(playbackLastAtRef.current===0 || now-playbackLastAtRef.current>=intervalMs){
         playbackLastAtRef.current=now;
-        playbackGroupRef.current+=1;
 
         // Keep playback on the animation-frame path. The QR canvas is painted
         // directly from the warmed cache, so React does not re-render the
@@ -166,6 +165,7 @@ export function Transfer() {
             const cached=renderCacheRef.current.get(cacheKey);
             if(cached) {
               drawQrMatricesToCanvas(qrCanvasRef.current,cached.matrices,1400,18);
+              playbackGroupRef.current+=1;
             } else if(!playbackPrefetchRef.current.has(cacheKey)) {
               playbackPrefetchRef.current.add(cacheKey);
               void buildRenderGroup(planKey,plan,nextGroup,fountainMode)
