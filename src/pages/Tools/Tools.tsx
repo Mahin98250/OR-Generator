@@ -109,7 +109,7 @@ export function Tools() {
   }
 
   return (
-    <section className="mx-auto max-w-6xl py-8 sm:py-12">
+    <section className="tools-page mx-auto max-w-6xl py-8 sm:py-12">
       <div className="relative overflow-hidden rounded-[34px] border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-glass backdrop-blur-2xl sm:p-10">
         <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-cyan-400/15 blur-3xl" />
         <div className="pointer-events-none absolute -left-24 bottom-[-120px] h-72 w-72 rounded-full bg-violet-500/15 blur-3xl" />
