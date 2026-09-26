@@ -339,11 +339,16 @@ function searchFinder(image: ImageData, corner: Corner) {
   const width = image.width;
   const height = image.height;
   const minDim = Math.min(width, height);
-  const step = Math.max(6, Math.round(minDim / 95));
+  // The optical surface may occupy only a fraction of the camera image.
+  // Example: a 768 px sender surface inside a 1920 px camera frame is about
+  // 6 px/module, while minDim/128 is 15 px/module. Searching from 0.5× that
+  // estimate therefore excluded a valid physical frame.
   const expectedScale = minDim / OPTIFRAME_SIZE;
-  const minScale = Math.max(1.25, expectedScale * 0.5);
-  const maxScale = Math.min(18, Math.max(minScale + 1, expectedScale * 1.8));
-  const scaleStep = Math.max(1, expectedScale * 0.16);
+  const minScale = Math.max(1.5, expectedScale * 0.22);
+  const maxScale = Math.min(24, Math.max(minScale + 2, expectedScale * 2.2));
+  const scaleStep = Math.max(0.75, expectedScale * 0.08);
+  // Keep the spatial scan fine enough for small physical frames.
+  const step = Math.max(2, Math.min(8, Math.round(Math.max(1, expectedScale * 0.45))));
 
   const xStart = corner.includes('l') ? 0 : Math.floor(width * 0.58);
   const xEnd = corner.includes('l') ? Math.floor(width * 0.42) : width;
