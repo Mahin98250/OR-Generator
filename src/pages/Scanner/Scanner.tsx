@@ -10,8 +10,8 @@ const highlights = [
 
 export function Scanner() {
   return (
-    <section className="mx-auto max-w-6xl py-8 sm:py-12">
-      <div className="relative mb-7 overflow-hidden rounded-[32px] border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-glass backdrop-blur-2xl sm:p-9">
+    <section className="scanner-page mx-auto max-w-6xl py-8 sm:py-12">
+      <div className="scanner-intro relative mb-7 overflow-hidden rounded-[32px] border border-[var(--border)] bg-[var(--bg-elevated)] p-6 shadow-glass backdrop-blur-2xl sm:p-9">
         <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-cyan-400/15 blur-3xl" />
         <div className="pointer-events-none absolute -left-24 bottom-[-100px] h-64 w-64 rounded-full bg-indigo-500/15 blur-3xl" />
         <div className="relative">
