@@ -36,7 +36,7 @@ export function Statistics() {
   const maxTag = Math.max(1, ...tagCounts.map(([, count]) => count));
 
   return (
-    <section className="mx-auto max-w-5xl py-8 sm:py-10">
+    <section className="statistics-page mx-auto max-w-5xl py-8 sm:py-10">
       <div className="mb-7">
         <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-soft)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.16em] text-[var(--text-muted)]">
           <Sparkles size={12} className="text-cyan-300" /> Local analytics
