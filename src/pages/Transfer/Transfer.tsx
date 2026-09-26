@@ -31,6 +31,7 @@ type Telemetry = {
   goodputKbps:number;
   duplicates:number;
   decodeMs:number;
+  processMs:number;
   scanDelayMs:number;
 };
 
@@ -59,7 +60,7 @@ export function Transfer() {
   const [autoTune,setAutoTune]=useState(true);
   const [benchmarking,setBenchmarking]=useState(false);
   const [benchmark,setBenchmark]=useState<OpticalBenchmark|null>(null);
-  const [telemetry,setTelemetry]=useState<Telemetry>({startedAt:null,renderMs:0,encodeMs:0,prefetchReady:0,encoderWorkers:0,renderCount:0,renderFps:0,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,decodeMs:0,scanDelayMs:55});
+  const [telemetry,setTelemetry]=useState<Telemetry>({startedAt:null,renderMs:0,encodeMs:0,prefetchReady:0,encoderWorkers:0,renderCount:0,renderFps:0,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,decodeMs:0,processMs:0,scanDelayMs:55});
   const [screenAwake,setScreenAwake]=useState(false);
   const inputRef=useRef<HTMLInputElement>(null);
   const videoRef=useRef<HTMLVideoElement>(null);
@@ -552,7 +553,9 @@ export function Transfer() {
         if(job){
           try{
             const decoded=await job;
+            const processStarted=performance.now();
             await Promise.all(decoded.values.map(value=>processValue(value)));
+            const processMs=performance.now()-processStarted;
             recordBenchmark(decoded.values,decoded.processingMs);
             const now=performance.now();
             if(receiverStartedRef.current===null)receiverStartedRef.current=started;
@@ -561,7 +564,7 @@ export function Transfer() {
             const windowMs=now-detectedWindowRef.current.started;
             if(windowMs>=500){
               const elapsed=Math.max(.001,(now-(receiverStartedRef.current??now))/1000);
-              setTelemetry(prev=>({...prev,startedAt:receiverStartedRef.current,detectedPerSecond:detectedWindowRef.current.count/(windowMs/1000),solvedPerSecond:solvedRef.current/elapsed,goodputKbps:(decodedBytesRef.current/1024)/elapsed,duplicates:duplicateCountRef.current,decodeMs:prev.decodeMs===0?decoded.processingMs:prev.decodeMs*.7+decoded.processingMs*.3,scanDelayMs:scanDelayRef.current}));
+              setTelemetry(prev=>({...prev,startedAt:receiverStartedRef.current,detectedPerSecond:detectedWindowRef.current.count/(windowMs/1000),solvedPerSecond:solvedRef.current/elapsed,goodputKbps:(decodedBytesRef.current/1024)/elapsed,duplicates:duplicateCountRef.current,decodeMs:prev.decodeMs===0?decoded.processingMs:prev.decodeMs*.7+decoded.processingMs*.3,processMs:prev.processMs===0?processMs:prev.processMs*.7+processMs*.3,scanDelayMs:scanDelayRef.current}));
               detectedWindowRef.current={started:now,count:0};
             }
             scanDelayRef.current=decoded.processingMs>75?Math.min(180,Math.max(70,Math.round(decoded.processingMs*.9))):decoded.values.length>0?Math.max(25,scanDelayRef.current-4):Math.min(85,scanDelayRef.current+2);
@@ -586,7 +589,12 @@ export function Transfer() {
       // BarcodeDetector is a progressive enhancement. If this browser takes
       // too long on a real QR, switch immediately to our bounded worker path.
       if(nativeSlowRef.current>=1){ startFallbackDecoder(); return; }
+      const processStarted=performance.now();
       await consumeDetected(found,detectorMs);
+      const processMs=performance.now()-processStarted;
+      if(receivingRef.current){
+        setTelemetry(prev=>({...prev,processMs:prev.processMs===0?processMs:prev.processMs*.7+processMs*.3}));
+      }
     }catch{
       startFallbackDecoder();
       return;
@@ -620,7 +628,7 @@ export function Transfer() {
     receiverStartedRef.current=null;solvedRef.current=0;duplicateCountRef.current=0;
     detectedWindowRef.current={started:0,count:0};scanDelayRef.current=55;
     nativeMissRef.current=0;nativeSlowRef.current=0;fallbackActiveRef.current=false;
-    setTelemetry(prev=>({...prev,startedAt:null,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,scanDelayMs:55}));
+    setTelemetry(prev=>({...prev,startedAt:null,detectedPerSecond:0,solvedPerSecond:0,goodputKbps:0,duplicates:0,decodeMs:0,processMs:0,scanDelayMs:55}));
 
     try{
       const stream=await navigator.mediaDevices.getUserMedia({
@@ -703,7 +711,7 @@ export function Transfer() {
       <div className="transfer-receiver-panel glass-panel rounded-[28px] p-5"><LockKeyhole size={20} className="text-cyan-300"/><p className="mt-3 font-bold">Loss-tolerant receiver</p><p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">Start the receiver before or after the sender. Fountain mode does not require frame 1, frame 2, frame 3… in order.</p><div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-2xl bg-cyan-300/[.06] p-3"><Activity size={16} className="text-cyan-300"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Decode</p><p className="mt-1 text-sm font-black">{telemetry.detectedPerSecond.toFixed(1)}/s</p></div>
           <div className="rounded-2xl bg-cyan-300/[.06] p-3"><Zap size={16} className="text-cyan-300"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Goodput</p><p className="mt-1 text-sm font-black">{telemetry.goodputKbps.toFixed(1)} KB/s</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{(telemetry.goodputKbps/1024).toFixed(2)} MB/s</p></div>
-          <div className="rounded-2xl bg-white/5 p-3"><TimerReset size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Detector</p><p className="mt-1 text-sm font-black">{telemetry.decodeMs.toFixed(0)} ms</p></div>
+          <div className="rounded-2xl bg-white/5 p-3"><TimerReset size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Decode</p><p className="mt-1 text-sm font-black">{telemetry.decodeMs.toFixed(0)} ms</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">pipeline {telemetry.processMs.toFixed(0)} ms</p></div>
           <div className="rounded-2xl bg-white/5 p-3"><Gauge size={16} className="text-white/70"/><p className="mt-2 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--text-muted)]">Scan cadence</p><p className="mt-1 text-sm font-black">{Math.round(telemetry.scanDelayMs)} ms</p><p className="mt-1 text-[10px] text-[var(--text-muted)]">{telemetry.duplicates} duplicates</p></div>
         </div>
         {benchmark&&<div className="mt-5 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.05] p-4"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-[.14em] text-cyan-200">Physical 1 MB benchmark</p><span className="text-[10px] text-[var(--text-muted)]">{(benchmark.durationMs/1000).toFixed(1)} s</span></div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><div><p className="text-[10px] text-[var(--text-muted)]">Sustained</p><p className="text-sm font-black">{benchmark.goodputKbps.toFixed(1)} KB/s</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Peak ≥1s</p><p className="text-sm font-black">{benchmark.peakGoodputKbps.toFixed(1)} KB/s</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Codes/sec</p><p className="text-sm font-black">{benchmark.sustainedDecodeRate.toFixed(1)} / {benchmark.peakDecodeRate.toFixed(1)}</p></div><div><p className="text-[10px] text-[var(--text-muted)]">Unique codes</p><p className="text-sm font-black">{benchmark.uniqueCodes}</p></div></div><div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-xl bg-white/5 p-3"><p className="text-[10px] text-[var(--text-muted)]">Decimen desktop→phone reference</p><p className="mt-1 text-xs font-bold">418.5 KB/s sustained · 601.5 KB/s peak</p></div><div className="rounded-xl bg-white/5 p-3"><p className="text-[10px] text-[var(--text-muted)]">Decimen phone→phone reference</p><p className="mt-1 text-xs font-bold">199.2 KB/s sustained · 340.8 KB/s peak</p></div></div><p className="mt-3 text-[10px] leading-5 text-[var(--text-muted)]">Run this on the actual device pair. The result is a measurement, not a simulated claim. To establish a “better than Decimen” result, repeat the same 1 MB, 10-second methodology on a comparable device pair and compare sustained and ≥1-second peak goodput.</p></div>}{progress&&<div className="mt-5 rounded-2xl bg-white/5 p-4"><p className="truncate text-sm font-bold">{progress.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{progress.mode==='fountain'?`${progress.received.toLocaleString()} unique droplets · ${progress.total.toLocaleString()} source blocks`:progress.mode==='multi-image'?`${progress.received} / ${progress.total} image frames`:`${progress.received} / ${progress.total} frames`}</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:`${Math.min(100,Math.round(progress.received/progress.total*100))}%`}}/></div></div>}{result&&<div className="mt-5 rounded-2xl bg-emerald-400/10 p-4"><CheckCircle2 className="text-emerald-300"/><p className="mt-2 font-bold">File reconstructed & verified</p><p className="mt-1 truncate text-xs text-[var(--text-muted)]">{result.name}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{(result.size/1024/1024).toFixed(2)} MB · SHA-256 verified</p><a href={result.url} download={result.name} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-950"><Download size={14}/> Save file</a></div>}{error&&<p className="mt-5 rounded-2xl bg-rose-400/10 p-4 text-sm text-rose-200">{error}</p>}</div>
