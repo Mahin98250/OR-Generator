@@ -1,5 +1,7 @@
 import { analyzeScan } from './scan';
 import { QrEncodePool } from './qrEncodePool';
+import { QrDecodePool } from './qrDecodePool';
+import { createQrMatrices, drawQrMatricesToCanvas } from './qrCanvas';
 import { decodeOptiFramePerspective, optiFrameSelfTest } from './optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from './optiframeStream';
 import { cropOptiLaneGrid, createOptiFrameCanvasCache, createOptiLaneSurface, getOptiLaneLayout, type OptiLaneCount } from './optiframeLanes';
@@ -382,6 +384,37 @@ async function qrEncoderWorkerDiagnostic() {
   }
 }
 
+async function qrDecoderWorkerDiagnostic() {
+  if (typeof Worker === 'undefined') return 'Worker API unavailable; native BarcodeDetector remains the primary scanner path.';
+
+  const expected = [
+    'OptiCode decoder lane 1',
+    'OptiCode decoder lane 2',
+    'OptiCode decoder lane 3',
+    'OptiCode decoder lane 4',
+  ];
+  const canvas = document.createElement('canvas');
+  const matrices = createQrMatrices(expected);
+  drawQrMatricesToCanvas(canvas, matrices, 900, 18);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  assert(ctx, 'QR decoder diagnostic canvas context unavailable.');
+
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const pool = new QrDecodePool(1);
+  try {
+    const result = await pool.decode(image.data.buffer, image.width, image.height, 1);
+    assert(result, 'QR decoder worker returned no result.');
+    for (const value of expected) {
+      assert(result.values.includes(value), 'QR decoder missed expected payload: ' + value);
+    }
+    assert(result.regionsScanned === 5, 'Bounded QR decoder scanned ' + result.regionsScanned + ' regions instead of 5.');
+    assert(result.processingMs >= 0, 'QR decoder worker reported invalid processing time.');
+    return result.values.length + ' / ' + expected.length + ' QR lanes decoded · ' + result.regionsScanned + ' bounded regions · ' + Math.round(result.processingMs) + ' ms worker time';
+  } finally {
+    pool.terminate();
+  }
+}
+
 async function optiFrameWorkerDiagnostic() {
   if (typeof Worker === 'undefined') return 'Worker API unavailable; main-thread decoder retained.';
 
@@ -660,6 +693,7 @@ export async function runProtocolDiagnostics(
     ['OR Transfer · fountain seed continuity', fountainSeedContinuity],
     ['OR Transfer · frame integrity', fountainFrameIntegrity],
     ['Performance · QR encoder worker', qrEncoderWorkerDiagnostic],
+    ['Performance · QR decoder worker', qrDecoderWorkerDiagnostic],
     ['OptiFrame · custom codec round trip', async () => {
       const r = optiFrameSelfTest();
       return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified';
