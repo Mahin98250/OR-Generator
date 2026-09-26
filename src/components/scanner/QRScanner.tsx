@@ -494,8 +494,8 @@ export function QRScanner() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="glass-soft flex flex-col gap-3 rounded-[24px] p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="scanner-tool space-y-5">
+      <div className="scanner-modebar glass-soft flex flex-col gap-3 rounded-[24px] p-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[.16em] text-[var(--text-muted)]">Scan mode</p>
           <p className="mt-1 text-sm text-[var(--text-muted)]">QR, product and industrial barcodes in one scanner.</p>
@@ -518,7 +518,7 @@ export function QRScanner() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[1.35fr_.65fr]">
-        <div className="relative overflow-hidden rounded-[30px] border border-[var(--border)] bg-black shadow-2xl shadow-black/20">
+        <div className="scanner-camera relative overflow-hidden rounded-[30px] border border-[var(--border)] bg-black shadow-2xl shadow-black/20">
           <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/75 to-transparent p-4">
             <div className="flex items-center gap-2 text-xs font-semibold text-white">
               <span className={`h-2 w-2 rounded-full ${scanning ? 'animate-pulse bg-emerald-400' : 'bg-white/30'}`} />
@@ -555,7 +555,7 @@ export function QRScanner() {
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-white/10 bg-black/50 p-3 backdrop-blur-xl">
+          <div className="scanner-camera-actions flex flex-wrap items-center gap-2 border-t border-white/10 bg-black/50 p-3 backdrop-blur-xl">
             <GlassButton onClick={() => void startCamera()} className="bg-white text-slate-950">
               <Camera size={15} /> {scanning ? 'Restart' : 'Start camera'}
             </GlassButton>
@@ -567,7 +567,7 @@ export function QRScanner() {
 
         <div className="space-y-3">
           <label
-            className={`group flex min-h-[250px] cursor-pointer flex-col items-center justify-center rounded-[30px] border border-dashed p-7 text-center transition ${dragActive ? 'border-cyan-300 bg-cyan-300/10' : 'border-[var(--border)] bg-[var(--bg-soft)] hover:bg-white/5'}`}
+            className={`scanner-image-card group flex min-h-[250px] cursor-pointer flex-col items-center justify-center rounded-[30px] border border-dashed p-7 text-center transition ${dragActive ? 'border-cyan-300 bg-cyan-300/10' : 'border-[var(--border)] bg-[var(--bg-soft)] hover:bg-white/5'}`}
             onDragOver={(event) => { event.preventDefault(); setDragActive(true); }}
             onDragLeave={() => setDragActive(false)}
             onDrop={(event) => {
@@ -590,7 +590,7 @@ export function QRScanner() {
             }} />
           </label>
 
-          <div className="glass-soft rounded-[24px] p-4">
+          <div className="scanner-engine glass-soft rounded-[24px] p-4">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.16em] text-[var(--text-muted)]">
               <Sparkles size={14} className="text-cyan-300" /> {engine}
             </div>
