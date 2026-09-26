@@ -86,20 +86,42 @@ export function Navbar() {
       </header>
 
       <nav className="mobile-bottom-nav fixed inset-x-2 bottom-2 z-[60] md:hidden" aria-label="Primary">
-        <div className="glass-panel mx-auto grid max-w-md grid-cols-5 rounded-[24px] p-1.5 shadow-2xl">
+        <div className="glass-panel relative mx-auto grid max-w-md grid-cols-5 rounded-[24px] p-1.5 shadow-2xl">
           {mobileLinks.map(({ to, label, icon: Icon }) => {
             const active = location.pathname === to;
             return (
-              <Link key={to} to={to} aria-current={active ? 'page' : undefined}
-                className="relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-[18px] px-1 py-2 text-[9px] font-bold">
-                {active && <motion.span layoutId="mobile-nav-active" className="absolute inset-0 rounded-[18px] bg-white shadow-md" transition={{ type: 'spring', stiffness: 520, damping: 38 }} />}
-                <motion.span className="relative z-10" animate={{ y: active ? -1 : 0, scale: active ? 1.05 : 1 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }}><Icon size={18} strokeWidth={active ? 2.6 : 2} /></motion.span>
-                <span className={`relative z-10 max-w-full truncate ${active ? 'text-slate-950' : 'text-[var(--text-muted)]'}`}>{label}</span>
+              <Link
+                key={to}
+                to={to}
+                aria-current={active ? 'page' : undefined}
+                className="relative z-10 flex min-w-0 flex-col items-center justify-center gap-1 rounded-[18px] px-1 py-2 text-[9px] font-bold"
+              >
+                {active && (
+                  <motion.span
+                    layoutId="mobile-nav-glass-pill"
+                    className="absolute inset-0 rounded-[18px] bg-white shadow-[0_8px_24px_rgba(0,0,0,.18)]"
+                    transition={{
+                      type: 'spring',
+                      stiffness: 420,
+                      damping: 32,
+                      mass: 0.72,
+                    }}
+                  />
+                )}
+                <motion.span
+                  className={`relative z-10 ${active ? 'text-slate-950' : 'text-[var(--text-muted)]'}`}
+                  animate={{ scale: active ? 1.08 : 1, y: active ? -1 : 0 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 28, mass: 0.5 }}
+                >
+                  <Icon size={18} strokeWidth={active ? 2.7 : 2} />
+                </motion.span>
+                <span className={`relative z-10 max-w-full truncate ${active ? 'text-slate-950' : 'text-[var(--text-muted)]'}`}>
+                  {label}
+                </span>
               </Link>
             );
           })}
         </div>
-      </nav>
-    </>
+      </nav>    </>
   );
 }
