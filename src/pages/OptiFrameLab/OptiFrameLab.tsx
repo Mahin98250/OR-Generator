@@ -191,29 +191,52 @@ export function OptiFrameLab() {
     }
   }
 
-  function load(file?: File) {
+  async function load(file?: File) {
     if (!file) return;
     const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const out = decodeOptiFrame(img) ?? decodeOptiFramePerspective(img)?.frame;
-        if (!out) throw new Error('Rejected: invalid frame, perspective correction failed, or CRC mismatch.');
-        setDecoded(utf8ToText(out.payload));
-        setStatus(`Decoded frame ${out.sequence + 1}/${out.total}; CRC-32 verified.`);
-      } catch (error) {
-        setStatus(error instanceof Error ? error.message : 'Unable to decode frame.');
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      setStatus('Unable to read that image.');
-    };
-    img.src = url;
-  }
+    setStatus('Loading image…');
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const element = new Image();
+        element.decoding = 'async';
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error('Unable to read that image.'));
+        element.src = url;
+      });
 
+      // MVP upload path: never run the expensive camera-style finder search on
+      // the original photo. Bound the bitmap first, then try deterministic decode.
+      const maxSide = 768;
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const width = Math.max(1, Math.round(img.naturalWidth * scale));
+      const height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('Canvas unavailable.');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, width, height);
+      await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+
+      let out = decodeOptiFrame(canvas);
+      if (!out) {
+        setStatus('Trying bounded perspective recovery…');
+        await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+        out = decodeOptiFramePerspective(canvas)?.frame ?? null;
+      }
+
+      if (!out) throw new Error('Rejected: not a valid OptiFrame or CRC mismatch.');
+      setDecoded(utf8ToText(out.payload));
+      setStatus('Decoded frame ' + (out.sequence + 1) + '/' + out.total + '; CRC-32 verified.');
+      canvas.width = 1;
+      canvas.height = 1;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to decode frame.');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
   function save() {
     if (!image) return;
     const link = document.createElement('a');
