@@ -50,8 +50,8 @@ export function Navbar() {
                 return (
                   <Link key={to} to={to}
                     className="relative shrink-0 rounded-full px-3 py-2 text-xs font-semibold lg:px-4 lg:text-sm">
-                    {active && <motion.span layoutId="desktop-nav-active" className="absolute inset-0 rounded-full bg-[var(--nav-active)] shadow-md shadow-black/10 ring-1 ring-[var(--nav-active-border)]" transition={{ type: 'spring', stiffness: 300, damping: 30, mass: 0.85 }} />}
-                    <span className={`relative z-10 inline-flex items-center gap-1.5 ${active ? 'text-slate-950' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}><Icon size={14} />{label}</span>
+                    {active && <motion.span layoutId="desktop-nav-active" className="absolute inset-0 rounded-full bg-[var(--nav-active)] shadow-md shadow-black/10 ring-1 ring-[var(--nav-active-border)]" transition={{ type: 'tween', duration: 0.36, ease: [0.22, 1, 0.36, 1] }} />}
+                    <span className={`relative z-10 inline-flex items-center gap-1.5 ${active ? 'text-[var(--nav-active-text)]' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}><Icon size={14} />{label}</span>
                   </Link>
                 );
               })}
@@ -108,7 +108,7 @@ export function Navbar() {
                   />
                 )}
                 <motion.span
-                  className={`relative z-10 ${active ? 'text-slate-950' : 'text-[var(--text-muted)]'}`}
+                  className={`relative z-10 ${active ? 'text-[var(--nav-active-text)]' : 'text-[var(--text-muted)]'}`}
                   animate={{ scale: active ? 1.08 : 1, y: active ? -1 : 0 }}
                   transition={{ type: 'tween', duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
                 >
