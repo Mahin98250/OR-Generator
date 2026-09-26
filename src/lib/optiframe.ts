@@ -438,6 +438,75 @@ function searchFinder(image: ImageData, corner: Corner) {
   return refined;
 }
 
+
+type PerspectiveAnchorSet = readonly [OptiFrameAnchor, OptiFrameAnchor, OptiFrameAnchor, OptiFrameAnchor];
+
+function searchFinderNear(image: ImageData, corner: Corner, previous: OptiFrameAnchor) {
+  const width = image.width;
+  const height = image.height;
+  const expectedScale = Math.min(width, height) / OPTIFRAME_SIZE;
+  const step = Math.max(1, Math.min(4, Math.round(Math.max(1, previous.scale * 0.3))));
+  const radius = Math.max(12, Math.round(previous.scale * 5));
+  const scaleRadius = Math.max(1, previous.scale * 0.35);
+  const scaleStep = Math.max(0.35, previous.scale * 0.08);
+  const angleRadius = Math.max(3, Math.min(12, Math.abs(previous.angle) + 3));
+  const candidates: Array<{ x: number; y: number; score: number; scale: number; angle: number }> = [];
+
+  for (let angle = previous.angle - angleRadius; angle <= previous.angle + angleRadius; angle += 2) {
+    for (let scale = Math.max(0.75, previous.scale - scaleRadius); scale <= previous.scale + scaleRadius; scale += scaleStep) {
+      for (let y = Math.max(4, previous.y - radius); y <= Math.min(height - 5, previous.y + radius); y += step) {
+        for (let x = Math.max(4, previous.x - radius); x <= Math.min(width - 5, previous.x + radius); x += step) {
+          const score = finderQuickScore(image, x, y, scale, angle);
+          if (score > 0.55) candidates.push({ x, y, score, scale, angle });
+        }
+      }
+    }
+  }
+
+  let best: OptiFrameAnchor | null = null;
+  for (const candidate of candidates) {
+    const score = finderScore(image, candidate.x, candidate.y, candidate.scale, candidate.angle);
+    if (score > (best?.score ?? 0)) {
+      best = { x: candidate.x, y: candidate.y, score, scale: candidate.scale, angle: candidate.angle };
+    }
+  }
+  return best && best.score >= 0.68 ? best : null;
+}
+
+function decodePerspectiveFromAnchors(image: ImageData, anchors: PerspectiveAnchorSet) {
+  const target: Array<[number, number]> = [[8, 8], [119, 8], [8, 119], [119, 119]];
+  const homography = solveHomography(anchors.map(anchor => [anchor.x, anchor.y]), target);
+  if (!homography) return null;
+  const reverse = solveHomography(target, anchors.map(anchor => [anchor.x, anchor.y]));
+  if (!reverse) return null;
+
+  const calibration = estimateCalibration(image, anchors);
+  if (!calibration) return null;
+
+  const moduleScale = anchors.reduce((sum, anchor) => sum + anchor.scale, 0) / anchors.length;
+  const topWidth = Math.hypot(anchors[1].x - anchors[0].x, anchors[1].y - anchors[0].y);
+  const bottomWidth = Math.hypot(anchors[3].x - anchors[2].x, anchors[3].y - anchors[2].y);
+  const leftHeight = Math.hypot(anchors[2].x - anchors[0].x, anchors[2].y - anchors[0].y);
+  const rightHeight = Math.hypot(anchors[3].x - anchors[1].x, anchors[3].y - anchors[1].y);
+  const longest = Math.max(topWidth, bottomWidth, leftHeight, rightHeight);
+  const shortest = Math.max(1, Math.min(topWidth, bottomWidth, leftHeight, rightHeight));
+  if (longest / shortest > 2.75) return null;
+
+  const bits: number[] = [];
+  for (let r = 0; r < OPTIFRAME_SIZE; r++) {
+    for (let col = 0; col < OPTIFRAME_SIZE; col++) {
+      if (isFinderCell(r, col)) continue;
+      const [sx, sy] = project(reverse, col, r);
+      if (sx < 0 || sy < 0 || sx >= image.width || sy >= image.height) return null;
+      const raw = sampleModule(image, sx, sy, moduleScale);
+      const normalized = Math.max(0, Math.min(255, (raw - calibration.dark) * 255 / (calibration.light - calibration.dark)));
+      const level = quantize(normalized);
+      bits.push((level >>> 1) & 1, level & 1);
+    }
+  }
+  return decodeBits(bits);
+}
+
 function solveHomography(
   source: Array<[number, number]>,
   target: Array<[number, number]>,
@@ -571,67 +640,58 @@ export function inspectOptiFrameAcquisition(source: CanvasImageSource | ImageDat
   return { stage: 'ready', anchors: found, confidence, moduleScale, angle, geometryRatio, sampleWidth: image.width, sampleHeight: image.height, elapsedMs: performance.now() - started };
 }
 
+let lastPerspectiveAnchors: PerspectiveAnchorSet | null = null;
+
 export function decodeOptiFramePerspective(source: CanvasImageSource | ImageData): { frame: OptiFrame; diagnostics: OptiFramePerspectiveDiagnostics } | null {
   const started = performance.now();
   const image = toImageData(source);
   if (!image) return null;
 
+  if (lastPerspectiveAnchors) {
+    const tracked = lastPerspectiveAnchors.map((anchor, index) =>
+      searchFinderNear(image, (['tl', 'tr', 'bl', 'br'] as const)[index], anchor),
+    );
+    if (tracked.every(Boolean)) {
+      const anchors = tracked as PerspectiveAnchorSet;
+      const frame = decodePerspectiveFromAnchors(image, anchors);
+      if (frame) {
+        lastPerspectiveAnchors = anchors;
+        return {
+          frame,
+          diagnostics: {
+            anchors,
+            confidence: anchors.reduce((sum, anchor) => sum + anchor.score, 0) / anchors.length,
+            sampleWidth: image.width,
+            sampleHeight: image.height,
+            decodeMs: performance.now() - started,
+          },
+        };
+      }
+    }
+  }
+
   const tl = searchFinder(image, 'tl');
   const tr = searchFinder(image, 'tr');
   const bl = searchFinder(image, 'bl');
   const br = searchFinder(image, 'br');
-  if (!tl || !tr || !bl || !br) return null;
-
-  const anchors = [tl, tr, bl, br] as const;
-  const target: Array<[number, number]> = [
-    [8, 8],
-    [119, 8],
-    [8, 119],
-    [119, 119],
-  ];
-  const homography = solveHomography(
-    anchors.map(anchor => [anchor.x, anchor.y]),
-    target,
-  );
-  if (!homography) return null;
-
-  const reverse = solveHomography(target, anchors.map(anchor => [anchor.x, anchor.y]));
-  if (!reverse) return null;
-
-  const calibration = estimateCalibration(image, anchors);
-  if (!calibration) return null;
-
-  const moduleScale = anchors.reduce((sum, anchor) => sum + anchor.scale, 0) / anchors.length;
-  const topWidth = Math.hypot(tr.x - tl.x, tr.y - tl.y);
-  const bottomWidth = Math.hypot(br.x - bl.x, br.y - bl.y);
-  const leftHeight = Math.hypot(bl.x - tl.x, bl.y - tl.y);
-  const rightHeight = Math.hypot(br.x - tr.x, br.y - tr.y);
-  const longest = Math.max(topWidth, bottomWidth, leftHeight, rightHeight);
-  const shortest = Math.max(1, Math.min(topWidth, bottomWidth, leftHeight, rightHeight));
-  if (longest / shortest > 2.75) return null;
-
-  const bits: number[] = [];
-  for (let r = 0; r < OPTIFRAME_SIZE; r++) {
-    for (let c = 0; c < OPTIFRAME_SIZE; c++) {
-      if (isFinderCell(r, c)) continue;
-      const [sx, sy] = project(reverse, c, r);
-      if (sx < 0 || sy < 0 || sx >= image.width || sy >= image.height) return null;
-      const raw = sampleModule(image, sx, sy, moduleScale);
-      const normalized = Math.max(0, Math.min(255, (raw - calibration.dark) * 255 / (calibration.light - calibration.dark)));
-      const level = quantize(normalized);
-      bits.push((level >>> 1) & 1, level & 1);
-    }
+  if (!tl || !tr || !bl || !br) {
+    lastPerspectiveAnchors = null;
+    return null;
   }
 
-  const frame = decodeBits(bits);
-  if (!frame) return null;
+  const anchors = [tl, tr, bl, br] as const;
+  const frame = decodePerspectiveFromAnchors(image, anchors);
+  if (!frame) {
+    lastPerspectiveAnchors = null;
+    return null;
+  }
 
-  const confidence = anchors.reduce((sum, anchor) => sum + anchor.score, 0) / anchors.length;
+  lastPerspectiveAnchors = anchors;
   return {
     frame,
     diagnostics: {
-      anchors: [tl, tr, bl, br],
-      confidence,
+      anchors,
+      confidence: anchors.reduce((sum, anchor) => sum + anchor.score, 0) / anchors.length,
       sampleWidth: image.width,
       sampleHeight: image.height,
       decodeMs: performance.now() - started,
