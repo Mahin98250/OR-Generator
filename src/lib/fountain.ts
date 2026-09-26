@@ -21,7 +21,7 @@ export type FountainPlan = {
   blocks: number;
   blockBytes: number;
   recommended: number;
-  getDroplet: (lane?: number, sequence?: number) => Promise<string>;
+  getDroplet: (lane?: number, sequence?: number, laneCount?: 1 | 2 | 4) => Promise<string>;
 };
 
 export type FountainDroplet = {
@@ -230,15 +230,25 @@ export async function createFountainTransfer(file: File): Promise<FountainPlan> 
     blockBytes: FOUNTAIN_BLOCK_BYTES,
     recommended,
 
-    getDroplet: async (lane = 0, sequence = 0) => {
+    getDroplet: async (lane = 0, sequence = 0, laneCount = FOUNTAIN_GRID_SIZE) => {
       const normalizedLane = ((lane % FOUNTAIN_GRID_SIZE) + FOUNTAIN_GRID_SIZE) % FOUNTAIN_GRID_SIZE;
       const normalizedSequence = Math.max(0, Math.floor(sequence));
+      const activeLaneCount: 1 | 2 | 4 = laneCount === 1 || laneCount === 2 || laneCount === 4
+        ? laneCount
+        : FOUNTAIN_GRID_SIZE;
 
-      // Two lanes are systematic: they aggressively seed missing source
-      // blocks, while the other two carry deterministic coded droplets.
-      const systematic = normalizedLane < 2;
+      // With fewer than four display lanes, keep every visible lane
+      // systematic so a phone can always make forward progress. The sender
+      // loops forever, so missed blocks are re-sent with the same source seed
+      // until the receiver gets them. Four-lane desktop streams retain the
+      // higher-throughput systematic + coded split.
+      const compactDisplay = activeLaneCount < FOUNTAIN_GRID_SIZE;
+      const systematic = compactDisplay || normalizedLane < 2;
       if (systematic) {
-        const target = ((normalizedSequence * 2 + normalizedLane) % blocks) >>> 0;
+        const slot = activeLaneCount < FOUNTAIN_GRID_SIZE
+          ? normalizedSequence * activeLaneCount + normalizedLane
+          : normalizedSequence * 2 + normalizedLane;
+        const target = (slot % blocks) >>> 0;
         const seed = (SYSTEMATIC_SEED_MASK | target) >>> 0;
         const degree = 1;
         const start = target * FOUNTAIN_BLOCK_BYTES;
