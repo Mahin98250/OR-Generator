@@ -11,11 +11,7 @@ const MAX_SINGLE_FILE_SIZE = 15 * 1024 * 1024;
 
 function yieldToBrowser() {
   return new Promise<void>(resolve => {
-    if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(() => resolve(), { timeout: 40 });
-    } else {
-      window.setTimeout(resolve, 0);
-    }
+    window.setTimeout(resolve, 0);
   });
 }
 
