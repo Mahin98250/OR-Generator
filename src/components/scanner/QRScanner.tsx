@@ -82,6 +82,7 @@ export function QRScanner() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<number | null>(null);
+  const scanTimerRef = useRef<number | null>(null);
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
   const zxingRef = useRef<BrowserMultiFormatReader | null>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
@@ -114,7 +115,9 @@ export function QRScanner() {
 
   function stopCamera() {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    if (scanTimerRef.current !== null) window.clearTimeout(scanTimerRef.current);
     frameRef.current = null;
+    scanTimerRef.current = null;
 
     zxingControlsRef.current?.stop();
     zxingControlsRef.current = null;
@@ -286,9 +289,10 @@ export function QRScanner() {
     else if (detectedCount > 0) scanDelayRef.current = Math.max(30, scanDelayRef.current - 6);
     else scanDelayRef.current = Math.min(85, scanDelayRef.current + 1);
 
-    frameRef.current = window.setTimeout(() => {
-      if (streamRef.current && detectorRef.current) scanFrame();
-    }, scanDelayRef.current) as unknown as number;
+    scanTimerRef.current = window.setTimeout(() => {
+      scanTimerRef.current = null;
+      if (streamRef.current && detectorRef.current) void scanFrame();
+    }, scanDelayRef.current);
   }
 
   async function handleBatchDecoded(results: BarcodeResult[]) {
@@ -444,14 +448,31 @@ export function QRScanner() {
           }
 
           const canvas = document.createElement('canvas');
-          canvas.width = image.naturalWidth;
-          canvas.height = image.naturalHeight;
+          const maxDimension = 1600;
+          const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+          const width = Math.max(1, Math.round(image.naturalWidth * scale));
+          const height = Math.max(1, Math.round(image.naturalHeight * scale));
+          canvas.width = width;
+          canvas.height = height;
           const context = canvas.getContext('2d', { willReadFrequently: true });
 
           if (!context) throw new Error('canvas');
-          context.drawImage(image, 0, 0);
-          const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'attemptBoth' });
+          context.imageSmoothingEnabled = false;
+          context.drawImage(image, 0, 0, width, height);
+          let pixels = context.getImageData(0, 0, width, height);
+          let code = jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'attemptBoth' });
+
+          // A 4K photo is expensive to scan and rarely needs its full raster.
+          // Retry at original resolution only when the fast pass cannot find a QR.
+          if (!code?.data && scale < 1) {
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            context.imageSmoothingEnabled = false;
+            context.drawImage(image, 0, 0);
+            pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+            code = jsQR(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'attemptBoth' });
+          }
+
           URL.revokeObjectURL(source);
 
           if (code?.data) handleDecoded(code.data, 'qr_code');
