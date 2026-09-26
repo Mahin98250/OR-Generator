@@ -4,6 +4,7 @@ import { decodeOptiFramePerspective, optiFrameSelfTest } from './optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from './optiframeStream';
 import { cropOptiLaneGrid, createOptiFrameCanvasCache, createOptiLaneSurface, getOptiLaneLayout, type OptiLaneCount } from './optiframeLanes';
 import { OptiFrameDecodePool } from './optiframeDecodePool';
+import { createAdaptiveTransmission } from './adaptiveTransmission';
 import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
   addMultiImageChunk,
@@ -457,6 +458,31 @@ async function optiFrameMultiLaneRoundTrip() {
   return '1×, 2×, and 4× lane surfaces cropped/decoded · bounded encoded-frame cache reuse verified';
 }
 
+async function adaptiveTransmissionDiagnostic() {
+  const controller = createAdaptiveTransmission(80, {
+    minIntervalMs: 16,
+    maxIntervalMs: 500,
+    targetRenderMs: 18,
+  });
+
+  const slower = controller.observe({ renderMs: 50 });
+  assert(slower.direction === 'slower' && slower.intervalMs > 80, 'Adaptive controller did not back off under render pressure.');
+
+  const fast = controller.getState();
+  controller.observe({ renderMs: 6 });
+  controller.observe({ renderMs: 6 });
+  const faster = controller.observe({ renderMs: 6 });
+  assert(faster.intervalMs <= fast.intervalMs, 'Adaptive controller did not reduce cadence after sustained headroom.');
+
+  const capped = createAdaptiveTransmission(490);
+  assert(capped.observe({ renderMs: 100 }).intervalMs === 500, 'Adaptive controller exceeded its maximum interval.');
+
+  capped.reset(10);
+  assert(capped.getState().intervalMs === 16, 'Adaptive controller reset ignored the minimum interval.');
+
+  return 'render-pressure backoff · sustained-headroom recovery · min/max bounds verified';
+}
+
 async function optiFrameStreamReassembly() {
   const text = 'OptiCode OptiFrame stream diagnostic · out-of-order · duplicates · UTF-8 ✓';
   const payload = new TextEncoder().encode(text.repeat(90));
@@ -607,6 +633,7 @@ export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult
     runCase('OptiFrame · zero-worker fallback', optiFrameWorkerFallbackDiagnostic),
     runCase('OptiFrame · multi-frame reassembly', optiFrameStreamReassembly),
     runCase('OptiFrame · multi-lane round trip', optiFrameMultiLaneRoundTrip),
+    runCase('Performance · adaptive transmission', adaptiveTransmissionDiagnostic),
     runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
     runCase('OR Transfer · corruption detection', transferCorruptionDetection),
     runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
