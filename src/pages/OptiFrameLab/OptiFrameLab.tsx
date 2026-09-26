@@ -219,14 +219,11 @@ export function OptiFrameLab() {
       ctx.drawImage(img, 0, 0, width, height);
       await new Promise<void>(resolve => window.setTimeout(resolve, 0));
 
-      let out = decodeOptiFrame(canvas);
-      if (!out) {
-        setStatus('Trying bounded perspective recovery…');
-        await new Promise<void>(resolve => window.setTimeout(resolve, 0));
-        out = decodeOptiFramePerspective(canvas)?.frame ?? null;
-      }
-
-      if (!out) throw new Error('Rejected: not a valid OptiFrame or CRC mismatch.');
+      // MVP upload mode is intentionally deterministic: decode a straight,
+      // generated 1× frame only. Camera perspective recovery remains a separate
+      // live path, so a bad upload can never trigger the expensive finder search.
+      const out = decodeOptiFrame(canvas);
+      if (!out) throw new Error('Rejected: this MVP upload expects a clear, straight OptiFrame image. Generate a frame here and upload that PNG.');
       setDecoded(utf8ToText(out.payload));
       setStatus('Decoded frame ' + (out.sequence + 1) + '/' + out.total + '; CRC-32 verified.');
       canvas.width = 1;
