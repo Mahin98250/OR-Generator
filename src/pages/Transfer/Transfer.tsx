@@ -261,7 +261,7 @@ export function Transfer() {
     playbackPrefetchRef.current.clear();
     playbackFountainRef.current=fountainMode;
     const startGroup=playbackGroupRef.current;
-    const groupIndices=[startGroup,startGroup+1,startGroup+2,startGroup+3];
+    const groupIndices=[startGroup,startGroup+1,startGroup+2,startGroup+3,startGroup+4,startGroup+5];
 
     const loadGroup=async(index:number,display=false)=>{
       try{
@@ -298,7 +298,7 @@ export function Transfer() {
             ...prev,
             renderMs:prev.renderMs===0?entry.renderMs:prev.renderMs*.75+entry.renderMs*.25,
             encodeMs:prev.encodeMs===0?entry.encodeMs:prev.encodeMs*.75+entry.encodeMs*.25,
-            prefetchReady:ready,
+            prefetchReady:Math.min(ready,6),
             encoderWorkers:qrEncoderRef.current?.capacity ?? 0,
             renderCount:renderCountRef.current,
             renderFps:prev.renderFps===0
