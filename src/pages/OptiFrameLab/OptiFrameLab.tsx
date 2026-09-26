@@ -5,6 +5,7 @@ import { GlassButton } from '../../components/ui/GlassButton';
 import { decodeOptiFrame, decodeOptiFramePerspective, encodeOptiFrame, getOptiFrameCapacity, inspectOptiFrameAcquisition, OPTIFRAME_SIZE, type OptiFrameAcquisitionDiagnostics, type OptiFramePerspectiveDiagnostics } from '../../lib/optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from '../../lib/optiframeStream';
 import { OptiFrameDecodePool } from '../../lib/optiframeDecodePool';
+import { createAdaptiveTransmission } from '../../lib/adaptiveTransmission';
 import { createOptiFrameCanvasCache, createOptiLaneSurface, cropOptiLaneGrid, type OptiLaneCount } from '../../lib/optiframeLanes';
 import { createOptiCodeFileTransfer, decodeOptiCodeFileTransfer, type OptiCodeFileTransfer } from '../../lib/opticodeTransfer';
 
@@ -127,6 +128,7 @@ export function OptiFrameLab() {
   const reacquireEveryFrames = 12;
   const receivedFileUrlRef = useRef('');
   const streamFrameCacheRef = useRef(createOptiFrameCanvasCache(96));
+  const adaptiveTransmissionRef = useRef(createAdaptiveTransmission(80));
 
   const streamPayload = useMemo(() => {
     const payload = transferData ?? new TextEncoder().encode(text);
@@ -154,7 +156,10 @@ export function OptiFrameLab() {
   }, [streamPayload.length, laneCount]);
 
   useEffect(() => {
-    if (!streamPlaying) return;
+    if (!streamPlaying) {
+      adaptiveTransmissionRef.current.reset(streamIntervalMs);
+      return;
+    }
     senderTimerRef.current = window.setInterval(() => {
       setStreamIndex(index => (index + laneCount) % Math.max(1, streamPayload.length));
     }, streamIntervalMs);
@@ -177,19 +182,37 @@ export function OptiFrameLab() {
 
   useEffect(() => {
     const drawSurface = (target: HTMLCanvasElement | null) => {
-      if (!target || !streamSurface) return;
+      if (!target || !streamSurface) return 0;
+      const started = performance.now();
       target.width = streamSurface.width;
       target.height = streamSurface.height;
       const ctx = target.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) return 0;
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, target.width, target.height);
       ctx.drawImage(streamSurface, 0, 0);
+      return performance.now() - started;
     };
 
-    drawSurface(streamCanvasRef.current);
-    drawSurface(presentationCanvasRef.current);
-  }, [streamSurface]);
+    const renderMs = Math.max(
+      drawSurface(streamCanvasRef.current),
+      drawSurface(presentationCanvasRef.current),
+    );
+
+    if (streamPlaying && renderMs > 0) {
+      const decision = adaptiveTransmissionRef.current.observe({ renderMs });
+      if (decision.changed && decision.intervalMs !== streamIntervalMs) {
+        setStreamIntervalMs(decision.intervalMs);
+        setStatus(
+          'Adaptive display cadence · ' +
+          decision.intervalMs +
+          ' ms · ' +
+          decision.direction +
+          ' to match rendering load.',
+        );
+      }
+    }
+  }, [streamSurface, streamPlaying, streamIntervalMs]);
 
   function generate() {
     try {
@@ -875,10 +898,15 @@ export function OptiFrameLab() {
             <label className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text)]">
               Speed
               <select value={streamIntervalMs} onChange={event => setStreamIntervalMs(Number(event.target.value))} className="bg-transparent outline-none">
-                <option value={500}>500 ms</option>
-                <option value={300}>300 ms</option>
-                <option value={180}>180 ms</option>
+                <option value={16}>16 ms</option>
+                <option value={24}>24 ms</option>
+                <option value={32}>32 ms</option>
+                <option value={60}>60 ms</option>
+                <option value={80}>80 ms</option>
                 <option value={120}>120 ms</option>
+                <option value={180}>180 ms</option>
+                <option value={300}>300 ms</option>
+                <option value={500}>500 ms</option>
               </select>
             </label>
             <button onClick={() => setStreamIndex(index => (index + streamPayload.length - laneCount) % Math.max(1, streamPayload.length))} className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)]">Previous</button>
