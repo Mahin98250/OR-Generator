@@ -86,6 +86,7 @@ export function QRScanner() {
   const zxingRef = useRef<BrowserMultiFormatReader | null>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
   const lastScanRef = useRef(0);
+  const scanDelayRef = useRef(70);
   const recentMultiFrameRef = useRef<Map<string, number>>(new Map());
 
   const [result, setResult] = useState('');
@@ -199,6 +200,7 @@ export function QRScanner() {
     setMultiImageResult(null);
     setMultiProgress(null);
     stopCamera();
+    scanDelayRef.current = 70;
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('Camera access is unavailable here. Open the installed app or an HTTPS page.');
@@ -266,19 +268,27 @@ export function QRScanner() {
       return;
     }
     lastScanRef.current = now;
+    const started = now;
+    let detectedCount = 0;
 
     try {
       if (video.readyState >= 2) {
         const detected = await detectorRef.current.detect(video);
-        if (detected.length) {
-          await handleBatchDecoded(detected);
-        }
+        detectedCount = detected.length;
+        if (detectedCount) await handleBatchDecoded(detected);
       }
     } catch {
       // Keep scanning through transient camera/detector errors.
     }
 
-    frameRef.current = requestAnimationFrame(scanFrame);
+    const elapsed = performance.now() - started;
+    if (elapsed > 80) scanDelayRef.current = Math.min(140, Math.max(scanDelayRef.current, Math.round(elapsed * 0.9)));
+    else if (detectedCount > 0) scanDelayRef.current = Math.max(30, scanDelayRef.current - 6);
+    else scanDelayRef.current = Math.min(85, scanDelayRef.current + 1);
+
+    frameRef.current = window.setTimeout(() => {
+      if (streamRef.current && detectorRef.current) scanFrame();
+    }, scanDelayRef.current) as unknown as number;
   }
 
   async function handleBatchDecoded(results: BarcodeResult[]) {
