@@ -11,7 +11,7 @@ import { GeneratorControls } from '../../components/generator/GeneratorControls'
 export function Generator() {
   return (
     <GeneratorProvider>
-      <section className="mx-auto max-w-7xl py-8 sm:py-12">
+      <section className="generator-page mx-auto max-w-7xl py-8 sm:py-12">
         <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} className="mb-7 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-4">
             <Link to="/" className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)]"><ArrowLeft size={14}/> Back home</Link>
