@@ -599,7 +599,10 @@ export function Transfer() {
       startFallbackDecoder();
       return;
     }
-    const decodeMs=performance.now()-started;
+    // Keep decoder telemetry isolated from IndexedDB/reconstruction work.
+    // This makes camera-engine latency directly measurable instead of hiding
+    // storage/UI pipeline time inside the displayed decode number.
+    const decodeMs=detectorRef.current ? performance.now()-started : 0;
     const now=performance.now();
     if(receiverStartedRef.current===null)receiverStartedRef.current=started;
     if(detectedWindowRef.current.started===0)detectedWindowRef.current.started=now;
