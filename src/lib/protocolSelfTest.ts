@@ -346,11 +346,13 @@ async function fountainSeedContinuity() {
     assert(!randomSeeds.has(randomFrame.seed), 'Random fountain seed repeated at sequence ' + i + '.');
     randomSeeds.add(randomFrame.seed);
 
-    const systematicRaw = await plan.getDroplet(0, i);
-    const systematicFrame = parseFountainFrame(systematicRaw);
-    assert(systematicFrame, 'Systematic sequence frame failed to parse.');
-    assert(systematicFrame.degree === 1, 'Systematic lane stopped being degree-1.');
-    systematicTargets.add(systematicFrame.seed & 0x7fffffff);
+    for (const lane of [0, 1] as const) {
+      const systematicRaw = await plan.getDroplet(lane, i);
+      const systematicFrame = parseFountainFrame(systematicRaw);
+      assert(systematicFrame, 'Systematic sequence frame failed to parse.');
+      assert(systematicFrame.degree === 1, 'Systematic lane stopped being degree-1.');
+      systematicTargets.add(systematicFrame.seed & 0x7fffffff);
+    }
   }
 
   assert(randomSeeds.size === 2_000, 'Deterministic random seed stream repeated.');
