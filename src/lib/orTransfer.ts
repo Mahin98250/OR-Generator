@@ -1,4 +1,4 @@
-import { clearSession, countChunks, getChunkIndexes, getChunks, getSession, putChunk, putSession } from './sessionStore';
+import { clearSession, getChunkIndexes, getChunks, getSession, putChunkAndCount, putSession } from './sessionStore';
 
 export const OR_TRANSFER_PREFIX = 'ORX1:';
 export const OR_TRANSFER_CHUNK_CHARS = 1500;
@@ -207,19 +207,20 @@ export async function addTransferFrame(frame:TransferFrame) {
 
   let storedChunk;
   try {
-    storedChunk=await putChunk(key,frame.index,frame.data);
+    // Write + count in one IndexedDB transaction. The optical receiver can
+    // deliver several frames per camera cycle; avoiding a second transaction
+    // removes avoidable storage round-trips from the hot path.
+    storedChunk=await putChunkAndCount(key,frame.index,frame.data);
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : 'Unable to save the transfer frame.');
   }
 
-  const received=await countChunks(key);
-
   return {
     ...frame,
-    received,
-    complete:received===session.total,
+    received:storedChunk.received,
+    complete:storedChunk.received===session.total,
     duplicate:storedChunk.duplicate,
-    missingCount:Math.max(0,session.total-received),
+    missingCount:Math.max(0,session.total-storedChunk.received),
   };
 }
 
