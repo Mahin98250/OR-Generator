@@ -10,7 +10,10 @@ import { createFountainDecoder, createFountainTransfer, FOUNTAIN_BLOCK_BYTES, FO
 import type { QrMatrix } from '../../lib/qrEncodePool';
 
 type Detector = { detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue?:string}>> };
-type DetectorCtor = new (options?:{formats?:string[]}) => Detector;
+type DetectorCtor = {
+  new (options?:{formats?:string[]}): Detector;
+  getSupportedFormats?: () => Promise<string[]>;
+};
 
 type Result = { url:string; name:string; size:number };
 type Progress = { mode:'fountain'|'compatibility'; session:string; name:string; received:number; total:number; duplicates:number };
@@ -217,7 +220,7 @@ export function Transfer() {
     const renderStart=performance.now();
     const values:string[]=[];
     for(let lane=0;lane<grid;lane+=1){
-      if(fountainMode) values.push(await (plan as FountainPlan).getDroplet(lane,groupIndex));
+      if(fountainMode) values.push(await (plan as FountainPlan).getDroplet(lane,groupIndex,grid as 1 | 2 | 4));
       else{
         const index=current*grid+lane+1;
         const compatPlan=plan as Awaited<ReturnType<typeof createTransfer>>;
@@ -286,9 +289,10 @@ export function Transfer() {
             renderWindowStatsRef.current={started:now,count:0,renderMs:0};
           }
 
+          const displayGrid=getDisplayLaneCount() === 1 ? 1 : getDisplayLaneCount() === 2 ? 2 : (fountainMode ? FOUNTAIN_GRID_SIZE : OR_TRANSFER_GRID_SIZE);
           const totalGroupsForUi=fountainMode
-            ? Math.max(1,Math.ceil((plan as FountainPlan).recommended/FOUNTAIN_GRID_SIZE))
-            : Math.max(1,Math.ceil((plan as Awaited<ReturnType<typeof createTransfer>>).total/OR_TRANSFER_GRID_SIZE));
+            ? Math.max(1,Math.ceil((plan as FountainPlan).recommended/displayGrid))
+            : Math.max(1,Math.ceil((plan as Awaited<ReturnType<typeof createTransfer>>).total/displayGrid));
           const ready=groupIndices.filter(next=>{
             const resolved=fountainMode ? next : next%totalGroupsForUi;
             return renderCacheRef.current.has(planKey+':'+resolved);
@@ -481,10 +485,28 @@ export function Transfer() {
       const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
       streamRef.current=stream;receivingRef.current=true;setReceiving(true);
       if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}
-      if('BarcodeDetector' in window){
-        const Ctor=(window as unknown as {BarcodeDetector:DetectorCtor}).BarcodeDetector;
-        detectorRef.current=new Ctor({formats:['qr_code']}); void scanLoop();
-      }else{
+      const Ctor=(window as unknown as {BarcodeDetector?:DetectorCtor}).BarcodeDetector;
+      let nativeQrReady=false;
+      if(Ctor){
+        try{
+          const supported=await Ctor.getSupportedFormats?.();
+          nativeQrReady=!supported || supported.includes('qr_code');
+        }catch{
+          nativeQrReady=false;
+        }
+      }
+
+      if(Ctor && nativeQrReady){
+        try{
+          detectorRef.current=new Ctor({formats:['qr_code']});
+          void scanLoop();
+        }catch{
+          detectorRef.current=null;
+          nativeQrReady=false;
+        }
+      }
+
+      if(!nativeQrReady){
         const canvas=document.createElement('canvas'); fallbackCanvasRef.current=canvas;
         const ctx=canvas.getContext('2d',{willReadFrequently:true});
         qrPoolRef.current=new QrDecodePool();
@@ -523,7 +545,10 @@ export function Transfer() {
         };
         void loop();
       }
-    }catch(e){setError(e instanceof Error?e.message:'Camera permission was denied.');}
+    }catch(e){
+      stopReceive();
+      setError(e instanceof Error?e.message:'Camera permission was denied.');
+    }
   }
 
   return <section className="transfer-page mx-auto max-w-6xl py-8 sm:py-12">
