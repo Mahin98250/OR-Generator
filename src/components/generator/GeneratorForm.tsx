@@ -106,13 +106,13 @@ export function GeneratorForm() {
       <div><h2 className="text-xl font-bold text-[var(--text)]">What should this QR contain?</h2><p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">Create a QR from text, links, or a photo. Large photos automatically switch to lossless Multi-QR mode.</p></div>
     </div>
 
-    <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1">
+    <div className="generator-mode-tabs grid grid-cols-3 gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] p-1">
       <button type="button" onClick={() => { setImageMode(false); setMultiMode(false); setMultiPlaying(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1); }} className={`rounded-xl px-4 py-3 text-sm font-bold ${!imageMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}><Link2 size={15} className="mr-2 inline" />Text / Link</button>
       <button type="button" onClick={() => { setMultiMode(false); setMultiPlaying(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1); inputRef.current?.click(); }} disabled={encoding} className={`rounded-xl px-3 py-3 text-xs font-bold ${imageMode && !multiMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}>{encoding ? <Loader2 size={15} className="mr-1 inline animate-spin" /> : <ImagePlus size={15} className="mr-1 inline" />}Photo → QR</button>
       <button type="button" onClick={() => { setMultiMode(true); setMultiPlaying(false); setMultiPlan(null); setMultiQr(''); setMultiIndex(1); inputRef.current?.click(); }} disabled={encoding} className={`rounded-xl px-3 py-3 text-xs font-bold ${multiMode ? 'bg-[var(--text)] text-[var(--bg)] shadow-lg' : 'text-[var(--text-muted)]'}`}><Layers3 size={15} className="mr-1 inline" />Multi-QR</button>
     </div>
     <input ref={inputRef} type="file" accept="image/*" className="sr-only" onChange={e => { void chooseImage(e.target.files?.[0]); e.currentTarget.value=''; }} />
-    <div className="grid grid-cols-2 gap-2">
+    <div className="generator-image-source grid grid-cols-2 gap-2">
       <button type="button" onClick={() => { const input = inputRef.current; if (input) { input.setAttribute('capture', 'environment'); input.click(); input.removeAttribute('capture'); } }} disabled={encoding} className="rounded-2xl border border-cyan-300/20 bg-cyan-300/[.06] px-4 py-3 text-xs font-bold text-cyan-100 transition hover:bg-cyan-300/10 disabled:opacity-50">Take photo</button>
       <button type="button" onClick={() => inputRef.current?.click()} disabled={encoding} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-soft)] px-4 py-3 text-xs font-bold text-[var(--text)] transition hover:bg-white/5 disabled:opacity-50">Choose from gallery</button>
     </div>
@@ -170,6 +170,6 @@ export function GeneratorForm() {
       <div className="rounded-2xl border border-white/8 bg-white/[.035] p-4"><div className="flex justify-between text-xs font-semibold text-[var(--text-muted)]"><span>QR size</span><span>{settings.size}px</span></div><input type="range" min="128" max="1024" value={settings.size} onChange={e=>setSettings(prev=>({...prev,size:Number(e.target.value)}))} className="mt-4 w-full accent-cyan-300"/></div>
       <div className="rounded-2xl border border-white/8 bg-white/[.035] p-4"><label className="text-xs font-semibold text-[var(--text-muted)]">Error correction</label><select value={settings.errorCorrectionLevel} onChange={e=>setSettings(prev=>({...prev,errorCorrectionLevel:e.target.value as 'L'|'M'|'Q'|'H'}))} className="mt-3 w-full rounded-xl border border-white/10 bg-black/10 px-3 py-2.5 text-sm text-[var(--text)]"><option value="L">Low · L</option><option value="M">Medium · M</option><option value="Q">Quartile · Q</option><option value="H">High · H</option></select></div>
     </div>
-    <div className="flex flex-wrap gap-3"><GlassButton type="button" className="bg-white text-slate-950 shadow-xl" disabled={!isValid || encoding}>Generate QR</GlassButton><GlassButton type="button" onClick={reset}><RotateCcw size={14}/> Reset</GlassButton></div>
+    <div className="generator-primary-actions flex flex-wrap gap-3"><GlassButton type="button" className="bg-white text-slate-950 shadow-xl" disabled={!isValid || encoding}>Generate QR</GlassButton><GlassButton type="button" onClick={reset}><RotateCcw size={14}/> Reset</GlassButton></div>
   </div>;
 }
