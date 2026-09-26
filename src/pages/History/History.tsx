@@ -72,7 +72,7 @@ export function History() {
   }
 
   return (
-    <section className="mx-auto max-w-5xl py-8 sm:py-10">
+    <section className="history-page mx-auto max-w-5xl py-8 sm:py-10">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-5xl">Scan Library</h1>
