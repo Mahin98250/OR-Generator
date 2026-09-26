@@ -34,7 +34,10 @@ function decode(request:DecodeRequest):DecodeResult{
   const localSeen=new Set<string>();
   let regionsScanned=0;
   const data=new Uint8ClampedArray(request.buffer);
-  const maxDepth=Math.max(1,Math.min(2,request.maxDepth??2));
+  // Keep the real-time path bounded. A 2x2 optical layout only needs the
+  // full frame plus four overlapping quadrants; the old 4x4 pass multiplied
+  // expensive jsQR work without adding useful coverage for our 1/2/4-lane UI.
+  const maxDepth=Math.max(1,Math.min(1,request.maxDepth??1));
 
   const add=(value?:string)=>{
     if(!value)return;
@@ -48,13 +51,19 @@ function decode(request:DecodeRequest):DecodeResult{
     regionsScanned+=1;
     const {region,width,height}=scanRegion(data,request.width,request.height,x,y,w,h);
     if(width<120||height<120)return;
-    try{add(jsQR(region,width,height,{inversionAttempts:'attemptBoth'})?.data);}catch{}
+    try{
+      // OptiCode always renders black modules on a white background. Avoid
+      // jsQR's inverse-image pass; its own documentation notes that
+      // `attemptBoth` costs roughly 50% extra decode work.
+      add(jsQR(region,width,height,{inversionAttempts:'dontInvert',canOverwriteImage:true})?.data);
+    }catch{}
   };
 
-  // Whole-frame pass plus overlapping tiles. The tile search is adaptive:
-  // depth 1 gives 2x2 coverage; depth 2 adds 4x4 coverage for dense layouts.
+  // Whole-frame pass plus one overlapping 2x2 pass. Four quadrants map
+  // directly to the sender's maximum four-lane layout, while the full-frame
+  // pass keeps the one-lane case robust.
   inspect(0,0,request.width,request.height);
-  const grids=maxDepth>=2?[2,4]:[2];
+  const grids=maxDepth>=1?[2]:[];
   for(const grid of grids){
     const stepX=request.width/grid,stepY=request.height/grid;
     const overlapX=Math.floor(stepX*.16),overlapY=Math.floor(stepY*.16);
