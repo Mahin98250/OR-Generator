@@ -2,7 +2,7 @@ import { analyzeScan } from './scan';
 import { QrEncodePool } from './qrEncodePool';
 import { decodeOptiFramePerspective, optiFrameSelfTest } from './optiframe';
 import { OptiFrameAssembler, splitOptiFramePayload, utf8ToText } from './optiframeStream';
-import { cropOptiLaneGrid, createOptiLaneSurface, getOptiLaneLayout, type OptiLaneCount } from './optiframeLanes';
+import { cropOptiLaneGrid, createOptiFrameCanvasCache, createOptiLaneSurface, getOptiLaneLayout, type OptiLaneCount } from './optiframeLanes';
 import { OptiFrameDecodePool } from './optiframeDecodePool';
 import { createFountainDecoder, createFountainTransfer, parseFountainFrame, type FountainDroplet } from './fountain';
 import {
@@ -440,7 +440,21 @@ async function optiFrameMultiLaneRoundTrip() {
     assert(surface.canvas.width === layout.columns * expectedLaneSize && surface.canvas.height === layout.rows * expectedLaneSize, 'Lane surface dimensions mismatch.');
   }
 
-  return '1×, 2×, and 4× lane surfaces cropped and decoded byte-for-byte';
+  const cache = createOptiFrameCanvasCache(2);
+  const cachedPayload = new TextEncoder().encode('cache-fixture');
+  const first = cache.get(cachedPayload, 5, 20);
+  const second = cache.get(cachedPayload, 5, 20);
+  assert(first === second, 'OptiFrame canvas cache did not reuse an encoded frame.');
+  assert(cache.size() === 1, 'OptiFrame canvas cache size did not stay bounded after reuse.');
+  cache.get(cachedPayload, 6, 20);
+  cache.get(cachedPayload, 7, 20);
+  assert(cache.size() === 2, 'OptiFrame canvas cache exceeded its configured bound.');
+  cache.get(cachedPayload, 5, 20);
+  assert(cache.size() === 2, 'OptiFrame canvas cache changed size during LRU promotion.');
+  cache.clear();
+  assert(cache.size() === 0, 'OptiFrame canvas cache did not clear.');
+
+  return '1×, 2×, and 4× lane surfaces cropped/decoded · bounded encoded-frame cache reuse verified';
 }
 
 async function optiFrameStreamReassembly() {
