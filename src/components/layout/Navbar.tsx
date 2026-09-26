@@ -50,7 +50,7 @@ export function Navbar() {
                 return (
                   <Link key={to} to={to}
                     className="relative shrink-0 rounded-full px-3 py-2 text-xs font-semibold lg:px-4 lg:text-sm">
-                    {active && <motion.span layoutId="desktop-nav-active" className="absolute inset-0 rounded-full bg-white shadow-md shadow-black/10" transition={{ type: 'spring', stiffness: 520, damping: 38 }} />}
+                    {active && <motion.span layoutId="desktop-nav-active" className="absolute inset-0 rounded-full bg-white shadow-md shadow-black/10" transition={{ type: 'spring', stiffness: 300, damping: 30, mass: 0.85 }} />}
                     <span className={`relative z-10 inline-flex items-center gap-1.5 ${active ? 'text-slate-950' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}><Icon size={14} />{label}</span>
                   </Link>
                 );
@@ -102,16 +102,16 @@ export function Navbar() {
                     className="absolute inset-0 rounded-[18px] bg-white shadow-[0_8px_24px_rgba(0,0,0,.18)]"
                     transition={{
                       type: 'spring',
-                      stiffness: 420,
-                      damping: 32,
-                      mass: 0.72,
+                      stiffness: 260,
+                      damping: 30,
+                      mass: 0.9,
                     }}
                   />
                 )}
                 <motion.span
                   className={`relative z-10 ${active ? 'text-slate-950' : 'text-[var(--text-muted)]'}`}
                   animate={{ scale: active ? 1.08 : 1, y: active ? -1 : 0 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 28, mass: 0.5 }}
+                  transition={{ type: 'spring', stiffness: 360, damping: 30, mass: 0.65 }}
                 >
                   <Icon size={18} strokeWidth={active ? 2.7 : 2} />
                 </motion.span>
