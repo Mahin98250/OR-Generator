@@ -626,36 +626,84 @@ async function parserValidation() {
   return 'Malformed hashes and oversized payloads were rejected before storage';
 }
 
-export async function runProtocolDiagnostics(): Promise<ProtocolDiagnosticResult[]> {
+export type ProtocolDiagnosticProgress = {
+  completed: number;
+  total: number;
+  current: string;
+  result?: ProtocolDiagnosticResult;
+};
+
+type ProtocolDiagnosticCase = readonly [name: string, fn: () => Promise<string>];
+
+function yieldToBrowser() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+export async function runProtocolDiagnostics(
+  onProgress?: (progress: ProtocolDiagnosticProgress) => void,
+): Promise<ProtocolDiagnosticResult[]> {
   if (!('indexedDB' in window)) {
-    return [{
+    const result: ProtocolDiagnosticResult = {
       name: 'Environment',
       passed: false,
       durationMs: 0,
       detail: 'IndexedDB is unavailable in this browser; local protocol storage cannot be tested.',
-    }];
+    };
+    onProgress?.({ completed: 1, total: 1, current: 'Complete', result });
+    return [result];
   }
 
-  return Promise.all([
-    runCase('OR Transfer · round trip', transferRoundTrip),
-    runCase('OR Transfer · fountain round trip', fountainRoundTrip),
-    runCase('OR Transfer · fountain recovery stress', fountainRecoveryStress),
-    runCase('OR Transfer · fountain seed continuity', fountainSeedContinuity),
-    runCase('OR Transfer · frame integrity', fountainFrameIntegrity),
-    runCase('Performance · QR encoder worker', qrEncoderWorkerDiagnostic),
-    runCase('OptiFrame · custom codec round trip', async () => { const r = optiFrameSelfTest(); return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified'; }),
-    runCase('OptiFrame · worker perspective decode', optiFrameWorkerDiagnostic),
-    runCase('OptiFrame · zero-worker fallback', optiFrameWorkerFallbackDiagnostic),
-    runCase('OptiFrame · multi-frame reassembly', optiFrameStreamReassembly),
-    runCase('OptiFrame · multi-lane round trip', optiFrameMultiLaneRoundTrip),
-    runCase('Performance · adaptive transmission', adaptiveTransmissionDiagnostic),
-    runCase('OR Transfer · missing-frame recovery', transferMissingRecovery),
-    runCase('OR Transfer · corruption detection', transferCorruptionDetection),
-    runCase('Multi-QR Photo · round trip', multiImageRoundTrip),
-    runCase('Multi-QR Photo · missing-frame recovery', multiImageMissingRecovery),
-    runCase('Scanner · Generator compatibility', generatorScannerCompatibility),
-    runCase('Scanner · payload classification', scanClassification),
-    runCase('Protocol · parser validation', parserValidation),
-    runCase('Scanner · format compatibility', scanFormatCompatibility),
-  ]);
+  const cases: ProtocolDiagnosticCase[] = [
+    ['OR Transfer · round trip', transferRoundTrip],
+    ['OR Transfer · fountain round trip', fountainRoundTrip],
+    ['OR Transfer · fountain recovery stress', fountainRecoveryStress],
+    ['OR Transfer · fountain seed continuity', fountainSeedContinuity],
+    ['OR Transfer · frame integrity', fountainFrameIntegrity],
+    ['Performance · QR encoder worker', qrEncoderWorkerDiagnostic],
+    ['OptiFrame · custom codec round trip', async () => {
+      const r = optiFrameSelfTest();
+      return r.payloadBytes + ' payload bytes · ' + r.capacityBytes + ' byte capacity · CRC-32 verified';
+    }],
+    ['OptiFrame · worker perspective decode', optiFrameWorkerDiagnostic],
+    ['OptiFrame · zero-worker fallback', optiFrameWorkerFallbackDiagnostic],
+    ['OptiFrame · multi-frame reassembly', optiFrameStreamReassembly],
+    ['OptiFrame · multi-lane round trip', optiFrameMultiLaneRoundTrip],
+    ['Performance · adaptive transmission', adaptiveTransmissionDiagnostic],
+    ['OR Transfer · missing-frame recovery', transferMissingRecovery],
+    ['OR Transfer · corruption detection', transferCorruptionDetection],
+    ['Multi-QR Photo · round trip', multiImageRoundTrip],
+    ['Multi-QR Photo · missing-frame recovery', multiImageMissingRecovery],
+    ['Scanner · Generator compatibility', generatorScannerCompatibility],
+    ['Scanner · payload classification', scanClassification],
+    ['Protocol · parser validation', parserValidation],
+    ['Scanner · format compatibility', scanFormatCompatibility],
+  ];
+
+  const results: ProtocolDiagnosticResult[] = [];
+  const total = cases.length;
+
+  onProgress?.({
+    completed: 0,
+    total,
+    current: cases[0]?.[0] ?? 'Starting diagnostics…',
+  });
+
+  for (let index = 0; index < cases.length; index += 1) {
+    const [name, fn] = cases[index];
+    const result = await runCase(name, fn);
+    results.push(result);
+
+    const next = cases[index + 1];
+    onProgress?.({
+      completed: index + 1,
+      total,
+      current: next?.[0] ?? 'Complete',
+      result,
+    });
+
+    // Let React paint the completed row before the next CPU/worker-heavy test.
+    if (next) await yieldToBrowser();
+  }
+
+  return results;
 }
